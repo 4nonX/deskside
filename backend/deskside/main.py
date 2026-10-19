@@ -78,7 +78,9 @@ def update_oui(target: str) -> None:
     path = Path(target)
     path.parent.mkdir(parents=True, exist_ok=True)
     print(f"downloading {OUI_URL} ...")
-    with httpx.stream("GET", OUI_URL, timeout=120, follow_redirects=True) as r:
+    # IEEE answers 418 to clients that do not say who they are.
+    headers = {"User-Agent": f"deskside/{__version__} (+https://github.com/4nonX/deskside)"}
+    with httpx.stream("GET", OUI_URL, headers=headers, timeout=120, follow_redirects=True) as r:
         r.raise_for_status()
         tmp = path.with_suffix(".part")
         with open(tmp, "wb") as fh:
