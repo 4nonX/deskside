@@ -16,7 +16,8 @@ from sqlalchemy.orm import Session, selectinload
 
 from . import __version__
 from .auth import COOKIE, MAX_AGE, ROLES, current_user, hash_password, require, verify_password
-from .db import AuditLog, Device, EventLog, Interface, Note, Sighting, User, now
+from . import naming
+from .db import AuditLog, Department, Device, DevicePerson, EventLog, Interface, Note, Person, Room, Sighting, User, now
 from .netaddr import ip_sort_key, mac_search_key, normalize_mac
 from .search import filter_rows, search_blob
 
@@ -29,6 +30,36 @@ def _db(request: Request):
 
 def _engine(request: Request):
     return request.app.state.engine
+
+
+def _contacts_ok(request: Request, user: User) -> bool:
+    return ROLES.index(user.role) >= ROLES.index(request.app.state.settings.contacts_visible_to)
+
+
+def _conventions(request: Request) -> dict[str, naming.Convention]:
+    return request.app.state.naming
+
+
+def _room_dict(r: Room | None) -> dict[str, Any] | None:
+    if r is None:
+        return None
+    return {"id": r.id, "number": r.number, "name": r.name, "building": r.building, "floor": r.floor,
+            "description": r.description}
+
+
+def _room_label(r: Room | None) -> str:
+    if r is None:
+        return ""
+    return " ".join(x for x in (r.number, r.name) if x)
+
+
+def _person_dict(p: Person, contacts: bool) -> dict[str, Any]:
+    d = {"id": p.id, "display_name": p.display_name, "username": p.username, "title": p.title,
+         "department": p.department.name if p.department else None,
+         "department_id": p.department_id, "source": p.source, "active": p.active}
+    if contacts:
+        d.update(email=p.email, phone=p.phone, mobile=p.mobile, chat=p.chat)
+    return d
 
 
 def _audit(s: Session, user: User, action: str, target: str = "", **detail: Any) -> None:
@@ -97,26 +128,40 @@ def _primary(sightings: list[Sighting]) -> Sighting | None:
     return max(sightings, key=lambda x: (x.online, x.last_seen), default=None)
 
 
-def build_rows(s: Session, aliases: dict) -> list[dict[str, Any]]:
+def build_rows(s: Session, aliases: dict, contacts: bool) -> list[dict[str, Any]]:
     sightings = {x.mac: x for x in s.scalars(select(Sighting))}
     rows: list[dict[str, Any]] = []
     owned: set[str] = set()
-    devices = s.scalars(select(Device).options(selectinload(Device.interfaces), selectinload(Device.notes)))
+    devices = s.scalars(select(Device).options(
+        selectinload(Device.interfaces), selectinload(Device.notes), selectinload(Device.room),
+        selectinload(Device.department), selectinload(Device.people).selectinload(DevicePerson.person)))
     for d in devices:
         macs = [i.mac for i in d.interfaces]
         owned.update(macs)
         sgs = [sightings[m] for m in macs if m in sightings]
+        links = sorted(d.people, key=lambda dp: (not dp.is_primary, dp.person.display_name.lower()))
         row = {"type": "device", "id": d.id, "name": d.name, "kind": d.kind, "description": d.description,
                **_sighting_dict(_primary(sgs), aliases), "macs": macs,
-               "pinned": [n.text for n in d.notes if n.pinned]}
+               "pinned": [n.text for n in d.notes if n.pinned],
+               "room": _room_label(d.room) or None, "department": d.department.name if d.department else None,
+               "people": [dp.person.display_name for dp in links]}
         row["mac"] = row.get("mac") or (macs[0] if macs else None)
-        row["search_extra"] = [n.text for n in d.notes] + [x.ip for x in sgs if x.ip] + \
-                              [x.hostname for x in sgs if x.hostname] + [i.label for i in d.interfaces if i.label]
+        extra = [n.text for n in d.notes] + [x.ip for x in sgs if x.ip]
+        extra += [x.hostname for x in sgs if x.hostname] + [i.label for i in d.interfaces if i.label]
+        if d.room:
+            extra += [d.room.number, d.room.name, d.room.building, d.room.floor]
+        if d.department:
+            extra.append(d.department.name)
+        for dp in links:
+            extra += [dp.person.display_name, dp.person.username]
+            if contacts:
+                extra += [dp.person.email, dp.person.phone, dp.person.mobile, dp.person.chat]
+        row["search_extra"] = [x for x in extra if x]
         rows.append(row)
     for mac, sg in sightings.items():
         if mac not in owned:
             rows.append({"type": "unknown", "id": None, "name": None, "kind": "", **_sighting_dict(sg, aliases),
-                         "macs": [mac], "pinned": []})
+                         "macs": [mac], "pinned": [], "room": None, "department": None, "people": []})
     for r in rows:
         r["_blob"] = search_blob(r)
         r["_mackeys"] = [mac_search_key(m) for m in r["macs"]]
@@ -127,7 +172,7 @@ def build_rows(s: Session, aliases: dict) -> list[dict[str, Any]]:
 def list_devices(request: Request, q: str | None = None, show: str = "all",
                  user: User = Depends(current_user)) -> dict[str, Any]:
     with _db(request).session() as s:
-        rows = build_rows(s, _engine(request).port_aliases)
+        rows = build_rows(s, _engine(request).port_aliases, _contacts_ok(request, user))
     if show == "known":
         rows = [r for r in rows if r["type"] == "device"]
     elif show == "unknown":
@@ -157,14 +202,22 @@ def _events_for(s: Session, macs: list[str], device_id: int | None, limit: int =
 @router.get("/devices/{device_id}")
 def get_device(device_id: int, request: Request, user: User = Depends(current_user)) -> dict[str, Any]:
     aliases = _engine(request).port_aliases
+    contacts = _contacts_ok(request, user)
     with _db(request).session() as s:
         d = s.get(Device, device_id)
         if d is None:
             raise HTTPException(404, "No such device.")
         sightings = {x.mac: x for x in s.scalars(select(Sighting).where(Sighting.mac.in_([i.mac for i in d.interfaces])))}
+        ips = [x.ip for x in sightings.values() if x.ip]
+        links = sorted(d.people, key=lambda dp: (not dp.is_primary, dp.person.display_name.lower()))
         return {
             "type": "device", "id": d.id, "name": d.name, "kind": d.kind, "description": d.description,
             "created_at": d.created_at, "updated_at": d.updated_at,
+            "room": _room_dict(d.room),
+            "department": {"id": d.department.id, "name": d.department.name} if d.department else None,
+            "people": [{"link_id": dp.id, "primary": dp.is_primary, **_person_dict(dp.person, contacts)} for dp in links],
+            "contacts_visible": contacts,
+            "naming_warnings": naming.check(_conventions(request), d.name, d.kind, ips),
             "interfaces": [{"id": i.id, "mac": i.mac, "label": i.label, "expected_ip": i.expected_ip,
                             **{k: v for k, v in _sighting_dict(sightings.get(i.mac), aliases).items() if k != "mac"}}
                            for i in d.interfaces],
@@ -187,6 +240,7 @@ def get_mac(mac: str, request: Request, user: User = Depends(current_user)) -> d
         if sg is None:
             raise HTTPException(404, "This MAC address has not been seen.")
         return {"type": "unknown", "mac": m, **_sighting_dict(sg, _engine(request).port_aliases),
+                "suggested_name": naming.suggest(_conventions(request), sg.hostname),
                 "events": _events_for(s, [m], None)}
 
 
@@ -201,6 +255,9 @@ class DevicePatch(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=200)
     kind: str | None = Field(default=None, max_length=50)
     description: str | None = Field(default=None, max_length=5000)
+    room_id: int | None = None
+    department_id: int | None = None
+    clear: list[str] = Field(default_factory=list)   # "room", "department": remove the assignment
 
 
 def _mac_free(s: Session, mac: str) -> None:
@@ -234,9 +291,22 @@ def update_device(device_id: int, body: DevicePatch, request: Request,
         d = s.get(Device, device_id)
         if d is None:
             raise HTTPException(404, "No such device.")
-        changes = body.model_dump(exclude_none=True)
-        for k, v in changes.items():
-            setattr(d, k, v.strip() if k != "description" else v)
+        changes = body.model_dump(exclude_none=True, exclude={"clear"})
+        for k in ("name", "kind", "description"):
+            if k in changes:
+                setattr(d, k, changes[k].strip() if k != "description" else changes[k])
+        if "room_id" in changes:
+            if s.get(Room, changes["room_id"]) is None:
+                raise HTTPException(404, "No such room.")
+            d.room_id = changes["room_id"]
+        if "department_id" in changes:
+            if s.get(Department, changes["department_id"]) is None:
+                raise HTTPException(404, "No such department.")
+            d.department_id = changes["department_id"]
+        for what in body.clear:
+            if what in ("room", "department"):
+                setattr(d, f"{what}_id", None)
+                changes[f"{what}_id"] = None
         _audit(s, user, "device.update", d.name, **changes)
     _engine(request).publish({"type": "refresh"})
     return {"ok": True}
@@ -361,7 +431,7 @@ def list_sources(request: Request, user: User = Depends(current_user)) -> dict[s
     eng = _engine(request)
     return {
         "last_merge": eng.last_merge,
-        "sources": [vars(st) for st in eng.state.values()],
+        "sources": [vars(st) for st in eng.state.values()] + ([vars(eng.directory.state)] if eng.directory else []),
         "suspect_ports": [{"switch": k[0], "port": k[1], "macs": v} for k, v in sorted(eng.suspect_ports.items())],
     }
 

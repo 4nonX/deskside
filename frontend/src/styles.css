@@ -141,10 +141,43 @@ ul.events li.clickable:hover { background: var(--row-hover); }
 .badge.bad { background: color-mix(in srgb, var(--bad) 18%, transparent); color: var(--bad); }
 table.users { max-width: 900px; background: var(--panel); margin-bottom: 20px; }
 
+/* milestone 2: people, places, directory */
+.hint { display: flex; gap: 8px; align-items: flex-start; }
+.hint svg { flex: none; margin-top: 2px; }
+.person { border: 1px solid var(--line); border-radius: 8px; padding: 9px 12px; margin-bottom: 8px; background: var(--panel); }
+.person.primary { border-color: var(--accent); }
+.person.inactive { opacity: .6; }
+.person-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.person .contact { margin-top: 6px; }
+.kv.contact div { grid-template-columns: 90px 1fr; }
+.kv a { color: var(--accent); text-decoration: none; }
+.kv a:hover { text-decoration: underline; }
+.kv select { width: 100%; }
+.tag.muted { color: var(--muted); }
+.suggest { font-size: 13px; color: var(--muted); display: flex; gap: 14px; flex-wrap: wrap; }
+.inline-tabs { padding: 0 0 12px; position: static; }
+.sync { margin-left: auto; }
+table.dir { background: var(--panel); max-width: 1100px; }
+table.dir input { width: 100%; }
+table.dir tfoot td { border-bottom: 0; padding-top: 12px; }
+table.dir .note-actions { margin-left: 14px; }
+.filters .grow { flex: 1; max-width: 420px; }
+.person-form { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; background: var(--panel);
+  border: 1px solid var(--line); border-radius: 8px; padding: 14px; margin-bottom: 14px; max-width: 1100px; }
+.person-form label { display: grid; gap: 3px; font-size: 12.5px; color: var(--muted); }
+.person-form .row-actions { grid-column: 1 / -1; }
+.people { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 8px; max-width: 1400px; }
+.hit span { display: inline-flex; align-items: center; gap: 6px; }
+
+@media (max-width: 1250px) {
+  .layout.with-card table.devices td:nth-child(5), .layout.with-card table.devices th:nth-child(5),
+  .layout.with-card table.devices td:nth-child(3), .layout.with-card table.devices th:nth-child(3) { display: none; }
+}
 @media (max-width: 900px) {
   .layout.with-card { grid-template-columns: 1fr; }
   .layout.with-card .list { display: none; }
   .top { flex-wrap: wrap; }
   .search { order: 3; max-width: none; flex-basis: 100%; }
-  td:nth-child(3), th:nth-child(3) { display: none; }
+  table.devices td:nth-child(3), table.devices th:nth-child(3),
+  table.devices td:nth-child(5), table.devices th:nth-child(5) { display: none; }
 }

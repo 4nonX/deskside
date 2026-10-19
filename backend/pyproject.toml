@@ -17,6 +17,7 @@ dependencies = [
     "pyyaml>=6.0",
     "pywinrm>=0.5",
     "itsdangerous>=2.2",
+    "ldap3>=2.9",
 ]
 
 [project.optional-dependencies]

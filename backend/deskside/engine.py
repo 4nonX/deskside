@@ -35,6 +35,7 @@ from sqlalchemy import delete, select
 
 from .config import Settings
 from .db import Database, EventLog, Interface, Sighting, now
+from .directory import Directory, DirectoryError
 from .netaddr import is_locally_administered, oui
 from .sources import AddressEntry, PortEntry, Snapshot, Source, SourceError, build_sources
 
@@ -109,12 +110,29 @@ class Engine:
         self._tasks: list[asyncio.Task[None]] = []
         self._dns_task: asyncio.Task[None] | None = None
         self.last_merge: float | None = None
+        self.directory: Directory | None = None
+        if settings.directory:
+            try:
+                self.directory = Directory(settings.directory, db)
+            except DirectoryError as exc:
+                from .config import ConfigError
+                raise ConfigError(str(exc)) from exc
 
     # --- lifecycle ---------------------------------------------------------------------------
     def start(self) -> None:
         for src in self.sources:
             self._tasks.append(asyncio.create_task(self._loop(src), name=f"source:{src.name}"))
         self._tasks.append(asyncio.create_task(self._housekeeping(), name="housekeeping"))
+        if self.directory:
+            self._tasks.append(asyncio.create_task(self._directory_loop(), name="directory"))
+
+    async def _directory_loop(self) -> None:
+        assert self.directory
+        while True:
+            if await self.directory.sync():
+                self.publish({"type": "refresh"})
+            self.publish({"type": "sources"})
+            await asyncio.sleep(self.directory.state.interval)
 
     async def stop(self) -> None:
         for t in self._tasks:

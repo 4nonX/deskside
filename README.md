@@ -13,10 +13,11 @@ The network part of each card keeps itself current. deskside reads switch MAC ta
 
 ## Status
 
-Early development, not yet released. The first milestone works: switch, ARP and DHCP collection (or Netdisco), the device list with search, device cards with live network data, names and pinned notes, events, and local accounts. Rooms, departments, people, remote access buttons and the NetBox connection follow in the next milestones, see [docs/design.md](docs/design.md).
+Early development, not yet released. Working so far: switch, ARP and DHCP collection (or Netdisco), the device list with search, device cards with live network data, names, pinned notes, rooms, departments, users with their contact details, directory sync from LDAP or Active Directory, naming conventions, events and local accounts. Remote access buttons and the NetBox connection follow in the next milestones, see [docs/design.md](docs/design.md).
 
 ## Documentation
 
+- [Using deskside](docs/usage.md): search, device cards, the directory
 - [Installation](docs/installation.md)
 - [Configuration](docs/configuration.md), including how sources are combined and which events exist
 - [Data sources](docs/sources.md), with the least access each one needs

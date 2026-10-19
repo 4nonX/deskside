@@ -10,7 +10,7 @@ Tested status, so you know what to expect:
 |---|---|
 | `snmp-switch`, `local-arp`, `dhcp-file` (`windows-csv`) | tested against real equipment |
 | `dhcp-file` (other formats) | tested with sample files |
-| `snmp-arp`, `dhcp-windows`, `dhcp-kea`, `dhcp-opnsense`, `netdisco` | written against the vendor documentation, not yet tested against a live system. Reports welcome. |
+| `snmp-arp`, `dhcp-windows`, `dhcp-kea`, `dhcp-opnsense`, `netdisco`, `directory` (LDAP/AD) | written against the vendor documentation, not yet tested against a live system. Reports welcome. |
 
 ## snmp-switch
 
@@ -95,3 +95,11 @@ Uses an existing Netdisco installation instead of, or in addition to, polling sw
 | `verify_tls` | | `false` for a self-signed certificate |
 
 deskside reads `search/device`, `object/device/{ip}/ports` and `object/device/{ip}/nodes` (active nodes with their IPs, NetBIOS names and vendor). It never queues jobs in Netdisco.
+
+## directory
+
+People and departments come from LDAP or Active Directory. This is configured in its own `directory:` section rather than under `sources:`, because it feeds people, not network data. The settings are described in [configuration.md](configuration.md#directory).
+
+**Least access.** In Active Directory every authenticated account can read the usual user attributes, so a dedicated, unprivileged service account is enough: no group memberships beyond "Domain Users", a long random password, ideally "Deny log on locally" and "Deny log on through Remote Desktop Services" applied by policy. In OpenLDAP or FreeIPA, create a bind account with read access to the user subtree and only the attributes you map. Use `ldaps://` or StartTLS so the password does not cross the network in clear text.
+
+deskside requests only the attributes you list under `attributes`, plus the identifier attribute.

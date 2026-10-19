@@ -22,6 +22,24 @@ dns:
 
 # oui_file: /data/oui.csv     # vendor names; download once with: deskside update-oui /data/oui.csv
 
+# Naming conventions (optional). {nn} is a two-digit number. See docs/configuration.md#naming.
+naming:
+  workstation:
+    pattern: "WS{nn}"
+    kind: workstation
+    # ip: "10.0.10.{100+n}"    # expected address per number, if you use a scheme
+
+privacy:
+  contacts_visible_to: editor # viewer, editor or admin: who sees phone numbers and e-mail addresses
+
+# People and departments from LDAP / Active Directory (optional). See docs/configuration.md#directory.
+# directory:
+#   flavor: ad
+#   url: ldaps://dc01.example.org
+#   user: svc-deskside@example.org
+#   password_file: /run/secrets/ldap_password
+#   base_dn: OU=Staff,DC=example,DC=org
+
 sources:
   # A managed switch, read over SNMP. Repeat for every switch.
   - type: snmp-switch

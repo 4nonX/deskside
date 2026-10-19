@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { ApiError, api, type DeviceCard, type EventItem, type Me, type NetInfo, type Row, type UnknownCard } from "./api";
 import { ago, datetime, t } from "./i18n";
 import { IconClose, IconEdit, IconPin, IconPlus, IconTrash, IconWarn } from "./icons";
+import { NamingWarnings, NextName, PeopleSection, PlaceSection } from "./Place";
 
 export type Selection = { kind: "device"; id: number } | { kind: "mac"; mac: string };
 
@@ -54,6 +55,7 @@ function DeviceView({ d, canEdit, isAdmin, wrap, onDeleted }:
       {editing ? (
         <div className="edit-head">
           <input className="title-input" value={name} onChange={(e) => setName(e.target.value)} autoFocus />
+          <NextName kind={kind} onUse={setName} />
           <label>{t("card.kind")}<input value={kind} onChange={(e) => setKind(e.target.value)} /></label>
           <label>{t("card.description")}<textarea rows={3} value={desc} onChange={(e) => setDesc(e.target.value)} /></label>
           <div className="row-actions">
@@ -75,6 +77,10 @@ function DeviceView({ d, canEdit, isAdmin, wrap, onDeleted }:
       {pinned.map((n) => (
         <div key={n.id} className="warning"><IconWarn /><div>{n.text}<div className="meta">{t("note.by", { author: n.author, t: ago(n.updated_at) })}</div></div></div>
       ))}
+      <NamingWarnings warnings={d.naming_warnings} />
+
+      <PeopleSection d={d} canEdit={canEdit} wrap={wrap} />
+      <PlaceSection d={d} canEdit={canEdit} wrap={wrap} />
 
       <section>
         <h3>{t("card.network")}</h3>
@@ -183,7 +189,7 @@ function History({ events }: { events: EventItem[] }) {
 }
 
 function UnknownView({ u, canEdit, onSelect }: { u: UnknownCard; canEdit: boolean; onSelect: (s: Selection) => void }) {
-  const suggested = (u.hostname ?? "").split(".")[0];
+  const suggested = u.suggested_name ?? (u.hostname ?? "").split(".")[0];
   const [name, setName] = useState(suggested);
   const [q, setQ] = useState("");
   const [hits, setHits] = useState<Row[]>([]);
@@ -208,6 +214,7 @@ function UnknownView({ u, canEdit, onSelect }: { u: UnknownCard; canEdit: boolea
             <input value={name} onChange={(e) => setName(e.target.value)} placeholder={t("col.name")} />
             <button className="primary" disabled={!name.trim()}><IconPlus /> {t("card.create")}</button>
           </form>
+          <NextName kind="" onUse={setName} />
           <div className="assign">
             <input value={q} onChange={(e) => setQ(e.target.value)} placeholder={t("card.assignsearch")} aria-label={t("card.assign")} />
             {hits.map((h) => (

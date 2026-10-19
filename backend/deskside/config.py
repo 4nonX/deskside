@@ -65,6 +65,8 @@ class Settings:
     naming: dict[str, Any] = field(default_factory=dict)
     sources: list[dict[str, Any]] = field(default_factory=list)
     admin_password: str | None = None
+    contacts_visible_to: str = "editor"
+    directory: dict[str, Any] | None = None
     base_path: str = ""
     raw: dict[str, Any] = field(default_factory=dict)
 
@@ -92,6 +94,16 @@ def load(path: str | os.PathLike[str] | None = None) -> Settings:
     s.uplink_mac_threshold = int(live.get("uplink_mac_threshold", s.uplink_mac_threshold))
     s.retention_days = int(live.get("retention_days", s.retention_days))
     s.naming = data.get("naming") or {}
+    from .naming import NamingError, load as load_naming
+    try:
+        load_naming(s.naming)
+    except NamingError as exc:
+        raise ConfigError(str(exc)) from exc
+    privacy = data.get("privacy") or {}
+    s.contacts_visible_to = str(privacy.get("contacts_visible_to", s.contacts_visible_to))
+    if s.contacts_visible_to not in ("viewer", "editor", "admin"):
+        raise ConfigError("privacy.contacts_visible_to must be viewer, editor or admin")
+    s.directory = data.get("directory") or None
     s.sources = data.get("sources") or []
     if not isinstance(s.sources, list):
         raise ConfigError("sources must be a list")

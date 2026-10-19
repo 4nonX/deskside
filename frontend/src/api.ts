@@ -30,7 +30,24 @@ export interface Row extends NetInfo {
   kind: string;
   macs: string[];
   pinned: string[];
+  room: string | null;
+  department: string | null;
+  people: string[];
 }
+
+export interface Room { id: number; number: string; name: string; building: string; floor: string; description: string; devices?: number }
+export type RoomInput = Omit<Room, "id" | "devices">;
+export interface Department { id: number; name: string; description: string; source: string; devices?: number; people?: number }
+export interface Person {
+  id: number; display_name: string; username: string; title: string; department: string | null; department_id: number | null;
+  source: string; active: boolean; email?: string; phone?: string; mobile?: string; chat?: string; devices?: number;
+}
+export interface PersonInput {
+  display_name: string; username: string; email: string; phone: string; mobile: string; chat: string; title: string;
+  department_id: number | null;
+}
+export interface PersonLink extends Person { link_id: number; primary: boolean }
+export interface Convention { key: string; pattern: string; kind: string; ip: string | null; next: string }
 
 export interface Note { id: number; text: string; pinned: boolean; author: string; created_at: number; updated_at: number }
 export interface EventItem { id?: number; ts: number; kind: string; message: string; mac?: string | null; device_id?: number | null }
@@ -38,9 +55,11 @@ export interface DeviceInterface extends NetInfo { id: number; mac: string; labe
 export interface DeviceCard {
   type: "device"; id: number; name: string; kind: string; description: string;
   created_at: number; updated_at: number;
+  room: Room | null; department: { id: number; name: string } | null; people: PersonLink[];
+  contacts_visible: boolean; naming_warnings: string[];
   interfaces: DeviceInterface[]; notes: Note[]; events: EventItem[];
 }
-export interface UnknownCard extends NetInfo { type: "unknown"; mac: string; events: EventItem[] }
+export interface UnknownCard extends NetInfo { type: "unknown"; mac: string; events: EventItem[]; suggested_name: string | null }
 export interface SourceState {
   name: string; type: string; interval: number; last_run: number | null; last_ok: number | null;
   duration: number | null; error: string | null; counts: Record<string, number>;
@@ -79,8 +98,26 @@ export const api = {
   device: (id: number) => request<DeviceCard>("GET", `/devices/${id}`),
   mac: (mac: string) => request<UnknownCard | { type: "redirect"; device_id: number }>("GET", `/macs/${encodeURIComponent(mac)}`),
   createDevice: (b: { name: string; kind?: string; mac?: string }) => request<{ id: number }>("POST", "/devices", b),
-  updateDevice: (id: number, b: Partial<{ name: string; kind: string; description: string }>) =>
-    request("PATCH", `/devices/${id}`, b),
+  updateDevice: (id: number, b: Partial<{ name: string; kind: string; description: string; room_id: number;
+    department_id: number; clear: ("room" | "department")[] }>) => request("PATCH", `/devices/${id}`, b),
+  rooms: () => request<Room[]>("GET", "/rooms"),
+  createRoom: (b: RoomInput) => request<{ id: number }>("POST", "/rooms", b),
+  updateRoom: (id: number, b: RoomInput) => request("PATCH", `/rooms/${id}`, b),
+  deleteRoom: (id: number) => request("DELETE", `/rooms/${id}`),
+  departments: () => request<Department[]>("GET", "/departments"),
+  createDepartment: (b: { name: string; description: string }) => request<{ id: number }>("POST", "/departments", b),
+  updateDepartment: (id: number, b: { name: string; description: string }) => request("PATCH", `/departments/${id}`, b),
+  deleteDepartment: (id: number) => request("DELETE", `/departments/${id}`),
+  people: (q = "", inactive = false) =>
+    request<Person[]>("GET", `/people?q=${encodeURIComponent(q)}&include_inactive=${inactive}`),
+  createPerson: (b: PersonInput) => request<{ id: number }>("POST", "/people", b),
+  updatePerson: (id: number, b: PersonInput) => request("PATCH", `/people/${id}`, b),
+  deletePerson: (id: number) => request("DELETE", `/people/${id}`),
+  linkPerson: (deviceId: number, personId: number) => request("POST", `/devices/${deviceId}/people`, { person_id: personId }),
+  setPrimary: (linkId: number) => request("PATCH", `/device-people/${linkId}`, { primary: true }),
+  unlinkPerson: (linkId: number) => request("DELETE", `/device-people/${linkId}`),
+  naming: () => request<Convention[]>("GET", "/naming"),
+  directorySync: () => request<{ ok: boolean; error: string | null }>("POST", "/directory/sync", {}),
   deleteDevice: (id: number) => request("DELETE", `/devices/${id}`),
   addInterface: (id: number, mac: string, label = "") => request("POST", `/devices/${id}/interfaces`, { mac, label }),
   removeInterface: (id: number) => request("DELETE", `/interfaces/${id}`),
