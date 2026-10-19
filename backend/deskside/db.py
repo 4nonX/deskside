@@ -59,6 +59,8 @@ class Room(Base):
     building: Mapped[str] = mapped_column(String(100), default="")
     floor: Mapped[str] = mapped_column(String(50), default="")
     description: Mapped[str] = mapped_column(Text, default="")
+    source: Mapped[str] = mapped_column(String(20), default="manual")      # "manual" or "netbox"
+    external_id: Mapped[str | None] = mapped_column(String(100), nullable=True, unique=True)
 
 
 class Department(Base):
@@ -113,6 +115,24 @@ class RemoteAccess(Base):
     username: Mapped[str] = mapped_column(String(200), default="")
     label: Mapped[str] = mapped_column(String(100), default="")
     position: Mapped[int] = mapped_column(Integer, default=0)
+
+
+class Proposal(Base):
+    """A change deskside suggests for NetBox. Applied only when someone confirms it."""
+
+    __tablename__ = "proposals"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    key: Mapped[str] = mapped_column(String(200), unique=True)
+    kind: Mapped[str] = mapped_column(String(30), index=True)
+    device_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    mac: Mapped[str | None] = mapped_column(String(17), nullable=True)
+    summary: Mapped[str] = mapped_column(Text)
+    payload: Mapped[dict] = mapped_column(JSON, default=dict)
+    status: Mapped[str] = mapped_column(String(20), default="open", index=True)   # open, applied, dismissed, resolved, failed
+    error: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[int] = mapped_column(Integer, default=now)
+    updated_at: Mapped[int] = mapped_column(Integer, default=now)
+    decided_by: Mapped[str] = mapped_column(String(100), default="")
 
 
 class Interface(Base):

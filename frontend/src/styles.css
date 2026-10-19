@@ -181,6 +181,11 @@ table.dir .note-actions { margin-left: 14px; }
 .remote-form { display: grid; gap: 6px; margin-top: 6px; }
 section > button.link { display: inline-flex; align-items: center; gap: 5px; font-size: 13px; }
 
+/* milestone 4: NetBox */
+.proposal { display: flex; gap: 10px; align-items: baseline; padding: 6px 0; border-top: 1px solid var(--line); font-size: 13px; }
+ul.events.proposals li { grid-template-columns: 90px 150px 1fr auto; align-items: start; }
+.kv a svg { vertical-align: -2px; }
+
 @media (max-width: 1250px) {
   .layout.with-card table.devices td:nth-child(5), .layout.with-card table.devices th:nth-child(5),
   .layout.with-card table.devices td:nth-child(3), .layout.with-card table.devices th:nth-child(3) { display: none; }

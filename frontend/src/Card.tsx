@@ -4,6 +4,7 @@ import { ago, datetime, t } from "./i18n";
 import { IconClose, IconEdit, IconPin, IconPlus, IconTrash, IconWarn } from "./icons";
 import { NamingWarnings, NextName, PeopleSection, PlaceSection } from "./Place";
 import { RemoteSection } from "./Remote";
+import { NetboxSection } from "./Netbox";
 
 export type Selection = { kind: "device"; id: number } | { kind: "mac"; mac: string };
 
@@ -84,6 +85,8 @@ function DeviceView({ d, canEdit, isAdmin, wrap, onDeleted }:
 
       <PeopleSection d={d} canEdit={canEdit} wrap={wrap} />
       <PlaceSection d={d} canEdit={canEdit} wrap={wrap} />
+
+      <NetboxSection d={d} isAdmin={isAdmin} wrap={wrap} />
 
       <section>
         <h3>{t("card.network")}</h3>

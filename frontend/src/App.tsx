@@ -5,8 +5,9 @@ import { IconPin, IconPort, IconSearch } from "./icons";
 import { Card, type Selection } from "./Card";
 import { EventsView, SourcesView, UsersView } from "./Views";
 import { DirectoryView } from "./Directory";
+import { NetboxView } from "./Netbox";
 
-type Tab = "devices" | "directory" | "events" | "sources" | "users";
+type Tab = "devices" | "directory" | "netbox" | "events" | "sources" | "users";
 type Show = "all" | "known" | "unknown" | "online";
 
 export function App() {
@@ -86,8 +87,8 @@ function Main({ me, onSignOut }: { me: Me; onSignOut: () => void }) {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  const tabs: [Tab, string][] = [["devices", t("app.devices")], ["directory", t("app.directory")], ["events", t("app.events")],
-    ["sources", t("app.sources")]];
+  const tabs: [Tab, string][] = [["devices", t("app.devices")], ["directory", t("app.directory")], ["netbox", "NetBox"],
+    ["events", t("app.events")], ["sources", t("app.sources")]];
   if (me.role === "admin") tabs.push(["users", t("app.users")]);
 
   return (
@@ -125,6 +126,7 @@ function Main({ me, onSignOut }: { me: Me; onSignOut: () => void }) {
       )}
       {tab === "events" && <main className="page"><EventsView onOpen={(s) => { setSel(s); setTab("devices"); }} /></main>}
       {tab === "directory" && <main className="page"><DirectoryView me={me} /></main>}
+      {tab === "netbox" && <main className="page"><NetboxView me={me} onOpen={(s) => { setSel(s); setTab("devices"); }} /></main>}
       {tab === "sources" && <main className="page"><SourcesView /></main>}
       {tab === "users" && <main className="page"><UsersView me={me} /></main>}
 

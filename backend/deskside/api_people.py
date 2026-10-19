@@ -34,7 +34,7 @@ def list_rooms(request: Request, user: User = Depends(current_user)) -> list[dic
     with _db(request).session() as s:
         counts = dict(s.execute(select(Device.room_id, func.count()).group_by(Device.room_id)).all())
         rooms = s.scalars(select(Room).order_by(Room.building, Room.floor, Room.number, Room.name))
-        return [{**_room_dict(r), "devices": counts.get(r.id, 0)} for r in rooms]
+        return [{**_room_dict(r), "source": r.source, "devices": counts.get(r.id, 0)} for r in rooms]
 
 
 def _check_room(body: RoomBody) -> None:
@@ -60,6 +60,8 @@ def update_room(room_id: int, body: RoomBody, request: Request, user: User = Dep
         r = s.get(Room, room_id)
         if r is None:
             raise HTTPException(404, "No such room.")
+        if r.source == "netbox":
+            raise HTTPException(400, "This room is a NetBox location; change it in NetBox.")
         for k, v in body.model_dump().items():
             setattr(r, k, v.strip() if k != "description" else v)
         _audit(s, user, "room.update", f"{r.number} {r.name}".strip())
@@ -73,6 +75,8 @@ def delete_room(room_id: int, request: Request, user: User = Depends(require("ed
         r = s.get(Room, room_id)
         if r is None:
             raise HTTPException(404, "No such room.")
+        if r.source == "netbox":
+            raise HTTPException(400, "This room is a NetBox location and would come back on the next sync.")
         for d in s.scalars(select(Device).where(Device.room_id == room_id)):
             d.room_id = None
         _audit(s, user, "room.delete", f"{r.number} {r.name}".strip())

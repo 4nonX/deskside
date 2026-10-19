@@ -56,6 +56,20 @@ const en = {
   "remote.user": "User name (optional)", "remote.label": "Label (optional)",
   "remote.copy": "Copy {value}", "remote.copied": "Copied",
   "remote.copyonly": "{tool} cannot be opened by a link here; the button copies the ID instead.",
+  "nb.device": "Device", "nb.location": "Location", "nb.path": "cabled to {endpoint}", "nb.nopath": "no cable path",
+  "nb.notfound": "Not found in NetBox.", "nb.apply": "Apply in NetBox", "nb.dismiss": "Dismiss",
+  "nb.kind.mac": "MAC", "nb.kind.cable": "cable", "nb.kind.moved": "moved", "nb.kind.location": "location",
+  "nb.status.open": "Open", "nb.status.applied": "Applied", "nb.status.dismissed": "Dismissed",
+  "nb.status.resolved": "Resolved", "nb.status.all": "All", "nb.status.failed": "Failed",
+  "nb.sync": "Compare with NetBox now", "nb.none": "Nothing to propose.",
+  "nb.notconfigured": "NetBox is not configured. See docs/netbox.md.",
+  "nb.readonly": "deskside is set to read-only for NetBox: proposals are shown but cannot be applied, and nothing is written automatically.",
+  "nb.explain": "Differences between what the network shows and what NetBox records. Nothing changes in NetBox until an admin applies a proposal. Proposals that no longer apply are marked resolved on their own.",
+  "dir.fromnetbox": "from NetBox",
+  "nb.summary.mac": "Add MAC {mac} to {device} {iface}",
+  "nb.summary.cable": "Connect {port} to {target} ({device})",
+  "nb.summary.moved": "{device} {iface} was seen on {seen}, NetBox has {recorded}: move that cable",
+  "nb.summary.location": "Set the NetBox location of {device} to {location}",
 };
 
 type Key = keyof typeof en;
@@ -116,6 +130,20 @@ const de: Partial<Record<Key, string>> = {
   "remote.user": "Benutzername (optional)", "remote.label": "Bezeichnung (optional)",
   "remote.copy": "{value} kopieren", "remote.copied": "Kopiert",
   "remote.copyonly": "{tool} lässt sich hier nicht per Link öffnen; der Knopf kopiert stattdessen die ID.",
+  "nb.device": "Gerät", "nb.location": "Standort", "nb.path": "verkabelt mit {endpoint}", "nb.nopath": "kein Kabelpfad",
+  "nb.notfound": "In NetBox nicht gefunden.", "nb.apply": "In NetBox übernehmen", "nb.dismiss": "Verwerfen",
+  "nb.kind.mac": "MAC", "nb.kind.cable": "Kabel", "nb.kind.moved": "umgesteckt", "nb.kind.location": "Standort",
+  "nb.status.open": "Offen", "nb.status.applied": "Übernommen", "nb.status.dismissed": "Verworfen",
+  "nb.status.resolved": "Erledigt", "nb.status.all": "Alle", "nb.status.failed": "Fehlgeschlagen",
+  "nb.sync": "Jetzt mit NetBox abgleichen", "nb.none": "Keine Vorschläge.",
+  "nb.notconfigured": "NetBox ist nicht eingerichtet. Siehe docs/netbox.md.",
+  "nb.readonly": "deskside ist für NetBox auf Nur-Lesen gestellt: Vorschläge werden angezeigt, lassen sich aber nicht übernehmen, und nichts wird automatisch geschrieben.",
+  "nb.explain": "Unterschiede zwischen dem, was das Netz zeigt, und dem, was in NetBox steht. In NetBox ändert sich nichts, bis ein Admin einen Vorschlag übernimmt. Vorschläge, die nicht mehr zutreffen, werden von selbst als erledigt markiert.",
+  "dir.fromnetbox": "aus NetBox",
+  "nb.summary.mac": "MAC {mac} bei {device} {iface} ergänzen",
+  "nb.summary.cable": "{port} mit {target} verbinden ({device})",
+  "nb.summary.moved": "{device} {iface} hängt an {seen}, in NetBox steht {recorded}: dieses Kabel umstecken",
+  "nb.summary.location": "Standort von {device} in NetBox auf {location} setzen",
 };
 
 const tables: Record<string, Partial<Record<Key, string>>> = { en, de };

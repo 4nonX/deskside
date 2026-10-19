@@ -76,7 +76,8 @@ function Rooms({ canEdit }: { canEdit: boolean }) {
             <td>{r.number}</td><td>{r.name}</td><td>{r.building}</td><td>{r.floor}</td><td className="sub">{r.description}</td>
             <td>
               {r.devices ?? 0}
-              {canEdit && (
+              {r.source === "netbox" && <span className="tag muted"> {t("dir.fromnetbox")}</span>}
+              {canEdit && r.source !== "netbox" && (
                 <span className="note-actions">
                   <button className="link" onClick={() => { setEdit(r.id); setForm({ number: r.number, name: r.name, building: r.building, floor: r.floor, description: r.description }); }}>{t("dir.edit")}</button>
                   <button className="link danger" onClick={() => confirm(t("dir.deleteconfirm", { name: roomLabel(r) })) && run(() => api.deleteRoom(r.id))()}>{t("dir.delete")}</button>

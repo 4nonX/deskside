@@ -35,8 +35,8 @@ export interface Row extends NetInfo {
   people: string[];
 }
 
-export interface Room { id: number; number: string; name: string; building: string; floor: string; description: string; devices?: number }
-export type RoomInput = Omit<Room, "id" | "devices">;
+export interface Room { id: number; number: string; name: string; building: string; floor: string; description: string; devices?: number; source?: string }
+export type RoomInput = Omit<Room, "id" | "devices" | "source">;
 export interface Department { id: number; name: string; description: string; source: string; devices?: number; people?: number }
 export interface Person {
   id: number; display_name: string; username: string; title: string; department: string | null; department_id: number | null;
@@ -52,6 +52,15 @@ export interface RemoteEntry {
   id: number | null; tool: string; tool_label: string; label: string; value: string; username: string;
   href: string | null; download: string | null; copy: string | null; needs: string; automatic: boolean;
 }
+export interface ProposalItem {
+  id: number; kind: string; summary: string; display?: Record<string, string>; status: string; error?: string;
+  device_id?: number | null;
+  device?: string | null; mac?: string | null; created_at?: number; updated_at: number; decided_by?: string;
+}
+export interface NetboxInfo {
+  id: number; name: string; url: string; location: string | null;
+  interfaces: { name: string; macs: string[]; endpoint: string | null }[];
+}
 export interface Convention { key: string; pattern: string; kind: string; ip: string | null; next: string }
 
 export interface Note { id: number; text: string; pinned: boolean; author: string; created_at: number; updated_at: number }
@@ -62,6 +71,7 @@ export interface DeviceCard {
   created_at: number; updated_at: number;
   room: Room | null; department: { id: number; name: string } | null; people: PersonLink[];
   contacts_visible: boolean; naming_warnings: string[]; remote: RemoteEntry[];
+  netbox: NetboxInfo | null; netbox_writable: boolean; proposals: ProposalItem[];
   interfaces: DeviceInterface[]; notes: Note[]; events: EventItem[];
 }
 export interface UnknownCard extends NetInfo { type: "unknown"; mac: string; events: EventItem[]; suggested_name: string | null }
@@ -122,6 +132,11 @@ export const api = {
   setPrimary: (linkId: number) => request("PATCH", `/device-people/${linkId}`, { primary: true }),
   unlinkPerson: (linkId: number) => request("DELETE", `/device-people/${linkId}`),
   naming: () => request<Convention[]>("GET", "/naming"),
+  proposals: (status: string) =>
+    request<{ configured: boolean; read_only: boolean; rows: ProposalItem[] }>("GET", `/proposals?status=${status}`),
+  applyProposal: (id: number) => request("POST", `/proposals/${id}/apply`, {}),
+  dismissProposal: (id: number) => request("POST", `/proposals/${id}/dismiss`, {}),
+  netboxSync: () => request("POST", "/netbox/sync", {}),
   remoteTools: () => request<RemoteTool[]>("GET", "/remote-tools"),
   addRemote: (deviceId: number, b: { tool: string; value: string; username: string; label: string }) =>
     request("POST", `/devices/${deviceId}/remote`, b),

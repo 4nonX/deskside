@@ -13,7 +13,7 @@ The network part of each card keeps itself current. deskside reads switch MAC ta
 
 ## Status
 
-Early development, not yet released. Working so far: switch, ARP and DHCP collection (or Netdisco), the device list with search, device cards with live network data, names, pinned notes, rooms, departments, users with their contact details, directory sync from LDAP or Active Directory, naming conventions, remote access buttons (Remote Desktop, RustDesk, TeamViewer, VNC, SSH, web and your own link templates), events and local accounts. The NetBox connection and notifications follow in the next milestones, see [docs/design.md](docs/design.md).
+Early development, not yet released. Working so far: switch, ARP and DHCP collection (or Netdisco), the device list with search, device cards with live network data, names, pinned notes, rooms, departments, users with their contact details, directory sync from LDAP or Active Directory, naming conventions, remote access buttons (Remote Desktop, RustDesk, TeamViewer, VNC, SSH, web and your own link templates), the NetBox connection with proposals that an admin confirms, events and local accounts. Notifications and longer history follow in the next milestone, see [docs/design.md](docs/design.md).
 
 ## Documentation
 
@@ -22,6 +22,7 @@ Early development, not yet released. Working so far: switch, ARP and DHCP collec
 - [Configuration](docs/configuration.md), including how sources are combined and which events exist
 - [Data sources](docs/sources.md), with the least access each one needs
 - [Remote access](docs/remote-access.md): built-in tools, how each link was verified, adding your own
+- [NetBox](docs/netbox.md): what is read, what is written on its own, what is only proposed
 - [Design](docs/design.md): scope, decisions and milestones
 
 ## Principles

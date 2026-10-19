@@ -36,6 +36,7 @@ from sqlalchemy import delete, select
 from .config import Settings
 from .db import Database, EventLog, Interface, Sighting, now
 from .directory import Directory, DirectoryError
+from .netbox import Netbox, NetboxError
 from .netaddr import is_locally_administered, oui
 from .sources import AddressEntry, PortEntry, Snapshot, Source, SourceError, build_sources
 
@@ -111,6 +112,13 @@ class Engine:
         self._dns_task: asyncio.Task[None] | None = None
         self.last_merge: float | None = None
         self.directory: Directory | None = None
+        self.netbox: Netbox | None = None
+        if settings.raw.get("netbox"):
+            try:
+                self.netbox = Netbox(settings.raw["netbox"], db)
+            except NetboxError as exc:
+                from .config import ConfigError
+                raise ConfigError(str(exc)) from exc
         if settings.directory:
             try:
                 self.directory = Directory(settings.directory, db)
@@ -125,6 +133,17 @@ class Engine:
         self._tasks.append(asyncio.create_task(self._housekeeping(), name="housekeeping"))
         if self.directory:
             self._tasks.append(asyncio.create_task(self._directory_loop(), name="directory"))
+        if self.netbox:
+            self._tasks.append(asyncio.create_task(self._netbox_loop(), name="netbox"))
+
+    async def _netbox_loop(self) -> None:
+        assert self.netbox
+        await asyncio.sleep(20)  # let the collectors deliver a first picture before comparing
+        while True:
+            await self.netbox.sync()
+            self.publish({"type": "refresh"})
+            self.publish({"type": "sources"})
+            await asyncio.sleep(self.netbox.state.interval)
 
     async def _directory_loop(self) -> None:
         assert self.directory

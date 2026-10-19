@@ -17,7 +17,8 @@ from sqlalchemy.orm import Session, selectinload
 from . import __version__
 from .auth import COOKIE, MAX_AGE, ROLES, current_user, hash_password, require, verify_password
 from . import naming
-from .db import AuditLog, Department, Device, DevicePerson, EventLog, Interface, Note, Person, Room, Sighting, User, now
+from .db import (AuditLog, Department, Device, DevicePerson, EventLog, Interface, Note, Person, Proposal, Room, Sighting,
+                 User, now)
 from .netaddr import ip_sort_key, mac_search_key, normalize_mac
 from .search import filter_rows, search_blob
 
@@ -228,6 +229,11 @@ def get_device(device_id: int, request: Request, user: User = Depends(current_us
                        "created_at": n.created_at, "updated_at": n.updated_at} for n in d.notes],
             "events": _events_for(s, [i.mac for i in d.interfaces], d.id),
             "remote": device_remote(request, s, d),
+            "netbox": _engine(request).netbox.info(d.name, [i.mac for i in d.interfaces]) if _engine(request).netbox else None,
+            "netbox_writable": bool(_engine(request).netbox and not _engine(request).netbox.read_only),
+            "proposals": [{"id": p.id, "kind": p.kind, "summary": p.summary, "status": p.status,
+                           "display": (p.payload or {}).get("display", {})}
+                          for p in s.scalars(select(Proposal).where(Proposal.device_id == d.id, Proposal.status.in_(("open", "failed"))))],
         }
 
 
@@ -435,7 +441,8 @@ def list_sources(request: Request, user: User = Depends(current_user)) -> dict[s
     eng = _engine(request)
     return {
         "last_merge": eng.last_merge,
-        "sources": [vars(st) for st in eng.state.values()] + ([vars(eng.directory.state)] if eng.directory else []),
+        "sources": [vars(st) for st in eng.state.values()] + ([vars(eng.directory.state)] if eng.directory else [])
+                   + ([vars(eng.netbox.state)] if eng.netbox else []),
         "suspect_ports": [{"switch": k[0], "port": k[1], "macs": v} for k, v in sorted(eng.suspect_ports.items())],
     }
 

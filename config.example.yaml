@@ -29,6 +29,12 @@ naming:
     kind: workstation
     # ip: "10.0.10.{100+n}"    # expected address per number, if you use a scheme
 
+# NetBox (optional). Start read-only and look at the proposals first. See docs/netbox.md.
+# netbox:
+#   url: https://netbox.example.org
+#   token_file: /run/secrets/netbox_token
+#   read_only: true
+
 # Remote access buttons (optional). See docs/remote-access.md.
 remote_tools:
   rdp:
