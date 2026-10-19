@@ -17,6 +17,7 @@ from .api import router
 from .api_people import router as people_router
 from .api_remote import router as remote_router
 from .api_netbox import router as netbox_router
+from .api_map import router as map_router
 from . import naming, remote
 from .auth import Sessions, ensure_admin
 from .db import Database
@@ -53,6 +54,7 @@ def create_app(settings: config.Settings | None = None) -> FastAPI:
     app.include_router(people_router)
     app.include_router(remote_router)
     app.include_router(netbox_router)
+    app.include_router(map_router)
 
     if (STATIC / "index.html").exists():
         app.mount("/assets", StaticFiles(directory=STATIC / "assets"), name="assets")

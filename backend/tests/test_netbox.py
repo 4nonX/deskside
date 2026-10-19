@@ -190,3 +190,23 @@ def test_no_cable_proposal_when_devices_share_a_port(setup):
     _sight(db, port="GigabitEthernet7")
     asyncio.run(nb.sync())
     assert "cable" not in _proposals(db)
+
+
+def test_import_peripherals_with_parent_rule(setup):
+    db, _, fake = setup
+    fake.devices.append({"id": 4, "name": "WS09-Monitor", "location": None, "role": {"name": "Monitor"},
+                         "device_type": {"model": "M24", "manufacturer": {"name": "Example"}}, "serial": "SN-9"})
+    fake.devices.append({"id": 5, "name": "Lobby-TV", "location": None, "role": {"name": "Monitor"}, "device_type": {}})
+    fake.devices.append({"id": 6, "name": "WS09-Phone", "location": None, "role": {"name": "Phone"}, "device_type": {}})
+    nb = Netbox({"url": "https://netbox.example.org", "token": "t", "name_pattern": r"^(?P<name>WS\d+)-Client-PC$",
+                 "import_devices": {"roles": ["monitor"], "parent_pattern": r"^(?P<parent>WS\d+)-"}}, db)
+    nb.transport = httpx.MockTransport(fake.handler)
+    _sight(db, port="GigabitEthernet7")
+    assert asyncio.run(nb.sync()), nb.state.error
+    assert asyncio.run(nb.sync())                                  # second run updates, does not duplicate
+    with db.session() as s:
+        devs = {d.name: d for d in s.scalars(select(Device))}
+        assert set(devs) == {"WS09", "WS09-Monitor", "Lobby-TV"}    # phone role not imported, PC not duplicated
+        mon = devs["WS09-Monitor"]
+        assert (mon.source, mon.kind, mon.model, mon.serial, mon.parent.name) == ("netbox", "Monitor", "M24", "SN-9", "WS09")
+        assert devs["Lobby-TV"].parent_id is None

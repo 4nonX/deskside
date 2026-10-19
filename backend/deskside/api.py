@@ -137,6 +137,12 @@ def build_rows(s: Session, aliases: dict, contacts: bool) -> list[dict[str, Any]
         selectinload(Device.interfaces), selectinload(Device.notes), selectinload(Device.room),
         selectinload(Device.department), selectinload(Device.people).selectinload(DevicePerson.person),
         selectinload(Device.remote)))
+    devices = list(devices)
+    names = {d.id: d.name for d in devices}
+    child_count: dict[int, int] = {}
+    for d in devices:
+        if d.parent_id:
+            child_count[d.parent_id] = child_count.get(d.parent_id, 0) + 1
     for d in devices:
         macs = [i.mac for i in d.interfaces]
         owned.update(macs)
@@ -145,6 +151,9 @@ def build_rows(s: Session, aliases: dict, contacts: bool) -> list[dict[str, Any]
         row = {"type": "device", "id": d.id, "name": d.name, "kind": d.kind, "description": d.description,
                **_sighting_dict(_primary(sgs), aliases), "macs": macs,
                "pinned": [n.text for n in d.notes if n.pinned],
+               "icon": d.icon, "parent_id": d.parent_id, "parent": names.get(d.parent_id) if d.parent_id else None,
+               "children": child_count.get(d.id, 0), "manufacturer": d.manufacturer, "model": d.model,
+               "connection": d.connection, "source": d.source,
                "room": _room_label(d.room) or None, "department": d.department.name if d.department else None,
                "people": [dp.person.display_name for dp in links]}
         row["mac"] = row.get("mac") or (macs[0] if macs else None)
@@ -155,6 +164,7 @@ def build_rows(s: Session, aliases: dict, contacts: bool) -> list[dict[str, Any]
         if d.department:
             extra.append(d.department.name)
         extra += [r.value for r in d.remote] + [r.label for r in d.remote]
+        extra += [d.manufacturer, d.model, d.serial, names.get(d.parent_id, "") if d.parent_id else ""]
         for dp in links:
             extra += [dp.person.display_name, dp.person.username]
             if contacts:
@@ -164,7 +174,8 @@ def build_rows(s: Session, aliases: dict, contacts: bool) -> list[dict[str, Any]
     for mac, sg in sightings.items():
         if mac not in owned:
             rows.append({"type": "unknown", "id": None, "name": None, "kind": "", **_sighting_dict(sg, aliases),
-                         "macs": [mac], "pinned": [], "room": None, "department": None, "people": []})
+                         "macs": [mac], "pinned": [], "room": None, "department": None, "people": [],
+                         "icon": "", "parent_id": None, "parent": None, "children": 0})
     for r in rows:
         r["_blob"] = search_blob(r)
         r["_mackeys"] = [mac_search_key(m) for m in r["macs"]]
@@ -217,6 +228,13 @@ def get_device(device_id: int, request: Request, user: User = Depends(current_us
         return {
             "type": "device", "id": d.id, "name": d.name, "kind": d.kind, "description": d.description,
             "created_at": d.created_at, "updated_at": d.updated_at,
+            "icon": d.icon, "manufacturer": d.manufacturer, "model": d.model, "serial": d.serial,
+            "connection": d.connection, "source": d.source,
+            "parent": _brief(d.parent) if d.parent else None,
+            "children": [{**_brief(c), "connection": c.connection, "manufacturer": c.manufacturer, "model": c.model,
+                          "serial": c.serial, "children": len(c.children)}
+                         for c in sorted(d.children, key=lambda c: (c.kind.lower(), c.name.lower()))],
+            "segment": _segment(s, d, sightings, aliases),
             "room": _room_dict(d.room),
             "department": {"id": d.department.id, "name": d.department.name} if d.department else None,
             "people": [{"link_id": dp.id, "primary": dp.is_primary, **_person_dict(dp.person, contacts)} for dp in links],
@@ -229,7 +247,8 @@ def get_device(device_id: int, request: Request, user: User = Depends(current_us
                        "created_at": n.created_at, "updated_at": n.updated_at} for n in d.notes],
             "events": _events_for(s, [i.mac for i in d.interfaces], d.id),
             "remote": device_remote(request, s, d),
-            "netbox": _engine(request).netbox.info(d.name, [i.mac for i in d.interfaces]) if _engine(request).netbox else None,
+            "netbox": (_engine(request).netbox.info(d.name, [i.mac for i in d.interfaces], d.external_id)
+                       if _engine(request).netbox else None),
             "netbox_writable": bool(_engine(request).netbox and not _engine(request).netbox.read_only),
             "proposals": [{"id": p.id, "kind": p.kind, "summary": p.summary, "status": p.status,
                            "display": (p.payload or {}).get("display", {})}
@@ -259,6 +278,12 @@ class DeviceBody(BaseModel):
     kind: str = Field(default="", max_length=50)
     description: str = Field(default="", max_length=5000)
     mac: str | None = None
+    parent_id: int | None = None
+    connection: str = Field(default="", max_length=30)
+    manufacturer: str = Field(default="", max_length=100)
+    model: str = Field(default="", max_length=100)
+    serial: str = Field(default="", max_length=100)
+    icon: str = Field(default="", max_length=60)
 
 
 class DevicePatch(BaseModel):
@@ -267,7 +292,55 @@ class DevicePatch(BaseModel):
     description: str | None = Field(default=None, max_length=5000)
     room_id: int | None = None
     department_id: int | None = None
-    clear: list[str] = Field(default_factory=list)   # "room", "department": remove the assignment
+    parent_id: int | None = None
+    connection: str | None = Field(default=None, max_length=30)
+    manufacturer: str | None = Field(default=None, max_length=100)
+    model: str | None = Field(default=None, max_length=100)
+    serial: str | None = Field(default=None, max_length=100)
+    icon: str | None = Field(default=None, max_length=60)
+    clear: list[str] = Field(default_factory=list)   # "room", "department", "parent": remove the assignment
+
+
+def _brief(d: Device) -> dict[str, Any]:
+    return {"id": d.id, "name": d.name, "kind": d.kind, "icon": d.icon}
+
+
+def _check_parent(s: Session, d: Device, parent_id: int) -> None:
+    """A device cannot hang off itself or off one of its own attached devices."""
+    p = s.get(Device, parent_id)
+    if p is None:
+        raise HTTPException(404, "No such parent device.")
+    seen = set()
+    while p is not None:
+        if p.id == d.id:
+            raise HTTPException(400, f"{d.name} cannot be attached to itself or to one of its own devices.")
+        if p.id in seen:
+            break
+        seen.add(p.id)
+        p = p.parent
+
+
+def _segment(s: Session, d: Device, sightings: dict[str, Sighting], aliases: dict) -> dict[str, Any] | None:
+    """Where the device is plugged in, and who else is on the same switch port."""
+    sg = _primary(list(sightings.values()))
+    if sg is None or not sg.port:
+        return None
+    own = {i.mac for i in d.interfaces}
+    others = [x for x in s.scalars(select(Sighting).where(Sighting.switch == sg.switch, Sighting.port == sg.port,
+                                                         Sighting.online)) if x.mac not in own]
+    owners = dict(s.execute(select(Interface.mac, Interface.device_id).where(Interface.mac.in_([x.mac for x in others]))).all())
+    devs = {x.id: x for x in s.scalars(select(Device).where(Device.id.in_(set(owners.values()))))} if owners else {}
+    peers, seen_dev = [], set()
+    for x in others:
+        dev = devs.get(owners.get(x.mac))
+        if dev is not None:
+            if dev.id not in seen_dev:
+                seen_dev.add(dev.id)
+                peers.append({"type": "device", **_brief(dev), "ip": x.ip})
+        else:
+            peers.append({"type": "unknown", "mac": x.mac, "name": x.hostname, "ip": x.ip, "vendor": x.vendor})
+    return {"switch": sg.switch, "port": sg.port, "alias": aliases.get((sg.switch, sg.port)),
+            "port_mac_count": sg.port_mac_count, "behind_uplink": sg.behind_uplink, "online": sg.online, "peers": peers}
 
 
 def _mac_free(s: Session, mac: str) -> None:
@@ -279,7 +352,13 @@ def _mac_free(s: Session, mac: str) -> None:
 @router.post("/devices")
 def create_device(body: DeviceBody, request: Request, user: User = Depends(require("editor"))) -> dict[str, Any]:
     with _db(request).session() as s:
-        d = Device(name=body.name.strip(), kind=body.kind.strip(), description=body.description)
+        d = Device(name=body.name.strip(), kind=body.kind.strip(), description=body.description,
+                   connection=body.connection.strip(), manufacturer=body.manufacturer.strip(), model=body.model.strip(),
+                   serial=body.serial.strip(), icon=body.icon.strip())
+        if body.parent_id is not None:
+            if s.get(Device, body.parent_id) is None:
+                raise HTTPException(404, "No such parent device.")
+            d.parent_id = body.parent_id
         if body.mac:
             mac = normalize_mac(body.mac)
             if not mac:
@@ -302,9 +381,14 @@ def update_device(device_id: int, body: DevicePatch, request: Request,
         if d is None:
             raise HTTPException(404, "No such device.")
         changes = body.model_dump(exclude_none=True, exclude={"clear"})
-        for k in ("name", "kind", "description"):
+        if d.source == "netbox" and {"name", "manufacturer", "model", "serial"} & set(changes):
+            raise HTTPException(400, "Name, manufacturer, model and serial of this device come from NetBox; change them there.")
+        for k in ("name", "kind", "description", "connection", "manufacturer", "model", "serial", "icon"):
             if k in changes:
                 setattr(d, k, changes[k].strip() if k != "description" else changes[k])
+        if "parent_id" in changes:
+            _check_parent(s, d, changes["parent_id"])
+            d.parent_id = changes["parent_id"]
         if "room_id" in changes:
             if s.get(Room, changes["room_id"]) is None:
                 raise HTTPException(404, "No such room.")
@@ -314,7 +398,7 @@ def update_device(device_id: int, body: DevicePatch, request: Request,
                 raise HTTPException(404, "No such department.")
             d.department_id = changes["department_id"]
         for what in body.clear:
-            if what in ("room", "department"):
+            if what in ("room", "department", "parent"):
                 setattr(d, f"{what}_id", None)
                 changes[f"{what}_id"] = None
         _audit(s, user, "device.update", d.name, **changes)

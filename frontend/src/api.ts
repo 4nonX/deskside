@@ -33,7 +33,30 @@ export interface Row extends NetInfo {
   room: string | null;
   department: string | null;
   people: string[];
+  icon: string;
+  parent_id: number | null;
+  parent: string | null;
+  children: number;
+  manufacturer?: string;
+  model?: string;
+  connection?: string;
+  source?: string;
 }
+
+export interface DeviceBrief { id: number; name: string; kind: string; icon: string }
+export interface Peripheral extends DeviceBrief { connection: string; manufacturer: string; model: string; serial: string; children: number }
+export interface SegmentPeer { type: "device" | "unknown"; id?: number; name: string | null; kind?: string; icon?: string; mac?: string; ip?: string | null; vendor?: string | null }
+export interface Segment {
+  switch: string; port: string; alias: string | null; port_mac_count: number | null; behind_uplink: boolean;
+  online: boolean; peers: SegmentPeer[];
+}
+export interface KindItem { kind: string; icon: string; devices: number }
+export interface MapNode {
+  type: "device" | "unknown"; id?: number; mac?: string; name: string | null; kind?: string; icon?: string;
+  connection?: string; ip?: string | null; vendor?: string | null; online?: boolean; children: MapNode[];
+}
+export interface MapPort { port: string; alias: string | null; uplink: boolean; macs: number; shared: boolean; items: MapNode[] }
+export interface Topology { switches: { name: string; ports: MapPort[] }[]; unplaced: MapNode[] }
 
 export interface Room { id: number; number: string; name: string; building: string; floor: string; description: string; devices?: number; source?: string }
 export type RoomInput = Omit<Room, "id" | "devices" | "source">;
@@ -59,7 +82,7 @@ export interface ProposalItem {
 }
 export interface NetboxInfo {
   id: number; name: string; url: string; location: string | null;
-  interfaces: { name: string; macs: string[]; endpoint: string | null }[];
+  interfaces: { name: string; macs: string[]; endpoint: string | null; via: string | null }[];
 }
 export interface Convention { key: string; pattern: string; kind: string; ip: string | null; next: string }
 
@@ -70,6 +93,8 @@ export interface DeviceCard {
   type: "device"; id: number; name: string; kind: string; description: string;
   created_at: number; updated_at: number;
   room: Room | null; department: { id: number; name: string } | null; people: PersonLink[];
+  icon: string; manufacturer: string; model: string; serial: string; connection: string; source: string;
+  parent: DeviceBrief | null; children: Peripheral[]; segment: Segment | null;
   contacts_visible: boolean; naming_warnings: string[]; remote: RemoteEntry[];
   netbox: NetboxInfo | null; netbox_writable: boolean; proposals: ProposalItem[];
   interfaces: DeviceInterface[]; notes: Note[]; events: EventItem[];
@@ -112,9 +137,14 @@ export const api = {
     request<{ total: number; rows: Row[] }>("GET", `/devices?q=${encodeURIComponent(q)}&show=${show}`),
   device: (id: number) => request<DeviceCard>("GET", `/devices/${id}`),
   mac: (mac: string) => request<UnknownCard | { type: "redirect"; device_id: number }>("GET", `/macs/${encodeURIComponent(mac)}`),
-  createDevice: (b: { name: string; kind?: string; mac?: string }) => request<{ id: number }>("POST", "/devices", b),
+  createDevice: (b: { name: string; kind?: string; mac?: string; parent_id?: number; connection?: string;
+    manufacturer?: string; model?: string; serial?: string }) => request<{ id: number }>("POST", "/devices", b),
   updateDevice: (id: number, b: Partial<{ name: string; kind: string; description: string; room_id: number;
-    department_id: number; clear: ("room" | "department")[] }>) => request("PATCH", `/devices/${id}`, b),
+    department_id: number; parent_id: number; connection: string; manufacturer: string; model: string; serial: string;
+    icon: string; clear: ("room" | "department" | "parent")[] }>) => request("PATCH", `/devices/${id}`, b),
+  kinds: () => request<KindItem[]>("GET", "/kinds"),
+  setKindIcon: (kind: string, icon: string) => request("PUT", `/kinds/${encodeURIComponent(kind)}`, { icon }),
+  topology: () => request<Topology>("GET", "/topology"),
   rooms: () => request<Room[]>("GET", "/rooms"),
   createRoom: (b: RoomInput) => request<{ id: number }>("POST", "/rooms", b),
   updateRoom: (id: number, b: RoomInput) => request("PATCH", `/rooms/${id}`, b),

@@ -8,6 +8,9 @@ deskside is a self-hosted overview of the devices in a network, built for suppor
 - who uses it and how to reach them
 - pinned warnings and notes ("power connector is loose, handle with care")
 - one button per remote access tool (RDP, VNC, SSH, AnyDesk, RustDesk and others)
+- what is attached to it: monitors, printers, scanners, phones, docking stations
+
+A network map draws each switch with what hangs off every port, down to the peripherals, with icons you can choose per device type. A room view shows the same by room.
 
 The network part of each card keeps itself current. deskside reads switch MAC tables over SNMP (or from Netdisco), ARP tables, DHCP leases and your directory, and matches what it sees to the devices you know about. New, moved and vanished devices show up on their own.
 
@@ -35,4 +38,4 @@ Early development, not yet released. Working so far: switch, ARP and DHCP collec
 
 ## Licence
 
-Apache License 2.0, see [LICENSE](LICENSE).
+Apache License 2.0, see [LICENSE](LICENSE). Bundled third-party material is listed in [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).

@@ -37,10 +37,21 @@ class Device(Base):
     room_id: Mapped[int | None] = mapped_column(ForeignKey("rooms.id", ondelete="SET NULL"), nullable=True, index=True)
     department_id: Mapped[int | None] = mapped_column(ForeignKey("departments.id", ondelete="SET NULL"),
                                                       nullable=True, index=True)
+    # Peripherals and other attached devices point to the device they are connected to.
+    parent_id: Mapped[int | None] = mapped_column(ForeignKey("devices.id", ondelete="SET NULL"), nullable=True, index=True)
+    connection: Mapped[str] = mapped_column(String(30), default="")       # usb, dp, hdmi, dock, network, ...
+    manufacturer: Mapped[str] = mapped_column(String(100), default="")
+    model: Mapped[str] = mapped_column(String(100), default="")
+    serial: Mapped[str] = mapped_column(String(100), default="")
+    icon: Mapped[str] = mapped_column(String(60), default="")             # overrides the icon of the device type
+    source: Mapped[str] = mapped_column(String(20), default="manual")     # "manual" or "netbox"
+    external_id: Mapped[str | None] = mapped_column(String(100), nullable=True, unique=True)
     created_at: Mapped[int] = mapped_column(Integer, default=now)
     updated_at: Mapped[int] = mapped_column(Integer, default=now, onupdate=now)
 
     room: Mapped[Room | None] = relationship()
+    parent: Mapped[Device | None] = relationship(remote_side="Device.id", back_populates="children")
+    children: Mapped[list[Device]] = relationship(back_populates="parent")
     department: Mapped[Department | None] = relationship()
     people: Mapped[list[DevicePerson]] = relationship(back_populates="device", cascade="all, delete-orphan")
     remote: Mapped[list[RemoteAccess]] = relationship(cascade="all, delete-orphan", order_by="RemoteAccess.position")
@@ -133,6 +144,14 @@ class Proposal(Base):
     created_at: Mapped[int] = mapped_column(Integer, default=now)
     updated_at: Mapped[int] = mapped_column(Integer, default=now)
     decided_by: Mapped[str] = mapped_column(String(100), default="")
+
+
+class KindSetting(Base):
+    """Display settings per device type: the icon used everywhere for devices of that type."""
+
+    __tablename__ = "kinds"
+    kind: Mapped[str] = mapped_column(String(50), primary_key=True)
+    icon: Mapped[str] = mapped_column(String(60), default="")
 
 
 class Interface(Base):

@@ -12,13 +12,38 @@ A few things that help:
 - **Keyboard:** `/` jumps to the search field, Enter opens the first result, Escape closes the card.
 - The search is part of the address (`?q=...`), so a search can be bookmarked or sent to a colleague.
 
-The filters above the list show all devices, only the ones you have named (**Known**), only addresses nobody has named yet (**Unknown**), or what is **Online** right now.
+The filters above the list show all devices, only the ones you have named (**Known**), only addresses nobody has named yet (**Unknown**), what is **Online** right now, or only **Peripherals**. Attached devices such as monitors are left out of the plain list so it stays readable; they appear as soon as you search, and on their parent's card.
+
+IP addresses, MAC addresses, host names and serial numbers copy themselves when you click them, in the list and on the card.
+
+## Three ways to look at the network
+
+The switch above the list changes the view:
+
+- **List**: everything in one table, filtered by the search.
+- **Network map**: a diagram per switch. Each port shows what is plugged in, and under each device what is attached to it. Ports with several devices (an unmanaged desk switch, a phone with a PC behind it, a hypervisor) are drawn as a dashed group. Unknown addresses have a question mark. Search terms highlight matching devices and scroll to the first one; click any device to open its card.
+- **Rooms**: one tile per room with its devices, and under each device its peripherals.
+
+## Icons
+
+Every device type has an icon, used in the list, on cards and in the network map. deskside picks a sensible one from the type name (printer, monitor, phone, switch, …). Editors can choose a different one under **Directory > Device types**, and any single device can have its own icon in its edit dialog. The icons come from the open-source Tabler set.
 
 ## The device card
 
-Selecting a row opens the card. It is meant to answer a support call without further clicks:
+Selecting a row opens the card. The top part answers a support call at a glance; the rest sits in tabs.
 
-- **Pinned warnings** at the top, for things the next person must know ("power connector is loose").
+At a glance:
+
+- **Name, type, room and status** ("online since 2 h"), and the remote access buttons.
+- **Pinned warnings**, for things the next person must know ("power connector is loose").
+- **IP, MAC, host name and main user** as tiles. Click a tile to copy its value; the main user's phone number is a link.
+- **Connection**: switch port, the patch panel port in front of it (from NetBox), a shared segment if there is one, and the device itself. Other devices on the same switch port are listed below and can be opened from there.
+- **Attached devices**: monitors, printers, scanners, docking stations and the like, with how they are connected and the model. Editors can add a new one or attach an existing device.
+
+In the tabs: **Details** (users, room and department, device data, network details per interface, remote access entries), **Notes**, **Recent events** and **NetBox**.
+
+What the card shows in detail:
+
 - **Remote access** buttons: Remote Desktop, RustDesk, TeamViewer, VNC, SSH, a web interface, or whatever your admin configured. Each button has a copy icon for the ID or address. See [remote-access.md](remote-access.md) for which tool opens how.
 - **Users**, with the main user first, their job title and department, and phone, mobile and e-mail as links you can click.
 - **Place**: room and department.

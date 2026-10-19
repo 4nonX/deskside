@@ -2,11 +2,15 @@ import { useCallback, useEffect, useState } from "react";
 import { ApiError, api, type DeviceCard, type EventItem, type Me, type NetInfo, type Row, type UnknownCard } from "./api";
 import { ago, datetime, t } from "./i18n";
 import { IconClose, IconEdit, IconPin, IconPlus, IconTrash, IconWarn } from "./icons";
+import { ICON_NAMES, Icon, useIconFor } from "./iconset";
+import { Copyable, Fact } from "./Copy";
 import { NamingWarnings, NextName, PeopleSection, PlaceSection } from "./Place";
-import { RemoteSection } from "./Remote";
+import { RemoteButton, RemoteSection } from "./Remote";
 import { NetboxSection } from "./Netbox";
+import { Peripherals } from "./Peripherals";
+import { ConnectionSelect, KindInput, connectionLabel, makeModel, type Selection } from "./fields";
 
-export type Selection = { kind: "device"; id: number } | { kind: "mac"; mac: string };
+export type { Selection } from "./fields";
 
 interface Props { sel: Selection; me: Me; tick: number; onClose: () => void; onSelect: (s: Selection) => void }
 
@@ -34,98 +38,261 @@ export function Card({ sel, me, tick, onClose, onSelect }: Props) {
     <aside className="card">
       <button className="icon close" onClick={onClose} title={t("card.close")}><IconClose /></button>
       {err && <div className="error">{err}</div>}
-      {data?.type === "device" && <DeviceView d={data} canEdit={canEdit} isAdmin={me.role === "admin"} wrap={wrap} onDeleted={onClose} />}
+      {data?.type === "device" && (
+        <DeviceView key={data.id} d={data} canEdit={canEdit} isAdmin={me.role === "admin"} wrap={wrap}
+                    onDeleted={onClose} onSelect={onSelect} />
+      )}
       {data?.type === "unknown" && <UnknownView u={data} canEdit={canEdit} onSelect={onSelect} />}
     </aside>
   );
 }
 
 type Wrap = (fn: () => Promise<unknown>) => () => Promise<void>;
+type Tab = "details" | "notes" | "history" | "netbox";
 
-function DeviceView({ d, canEdit, isAdmin, wrap, onDeleted }:
-  { d: DeviceCard; canEdit: boolean; isAdmin: boolean; wrap: Wrap; onDeleted: () => void }) {
+function statusOf(d: DeviceCard): { online: boolean; since: number | null | undefined; last: number | null | undefined } {
+  const live = d.interfaces.filter((i) => i.online);
+  if (live.length) return { online: true, since: Math.min(...live.map((i) => i.port_since ?? i.first_seen ?? Infinity)), last: null };
+  const last = Math.max(0, ...d.interfaces.map((i) => i.last_seen ?? 0));
+  return { online: false, since: null, last: last || null };
+}
+
+function DeviceView({ d, canEdit, isAdmin, wrap, onDeleted, onSelect }:
+  { d: DeviceCard; canEdit: boolean; isAdmin: boolean; wrap: Wrap; onDeleted: () => void; onSelect: (s: Selection) => void }) {
+  const iconFor = useIconFor();
+  const [tab, setTab] = useState<Tab>("details");
   const [editing, setEditing] = useState(false);
-  const [name, setName] = useState(d.name);
-  const [kind, setKind] = useState(d.kind);
-  const [desc, setDesc] = useState(d.description);
-  const [newMac, setNewMac] = useState("");
-  useEffect(() => { setName(d.name); setKind(d.kind); setDesc(d.description); }, [d]);
   const pinned = d.notes.filter((n) => n.pinned);
+  const main = d.interfaces.find((i) => i.online) ?? d.interfaces[0];
+  const primary = d.people.find((p) => p.primary) ?? d.people[0];
+  const st = statusOf(d);
+  const hasNet = d.interfaces.length > 0;
+  const tabs: [Tab, string, number?][] = [["details", t("card.details")], ["notes", t("card.notes"), d.notes.length],
+    ["history", t("card.history")]];
+  if (d.netbox || d.proposals.length) tabs.push(["netbox", "NetBox", d.proposals.length || undefined]);
 
   return (
     <>
-      {editing ? (
-        <div className="edit-head">
-          <input className="title-input" value={name} onChange={(e) => setName(e.target.value)} autoFocus />
-          <NextName kind={kind} onUse={setName} />
-          <label>{t("card.kind")}<input value={kind} onChange={(e) => setKind(e.target.value)} /></label>
-          <label>{t("card.description")}<textarea rows={3} value={desc} onChange={(e) => setDesc(e.target.value)} /></label>
-          <div className="row-actions">
-            <button className="primary" disabled={!name.trim()}
-                    onClick={wrap(async () => { await api.updateDevice(d.id, { name, kind, description: desc }); setEditing(false); })}>
-              {t("card.save")}
-            </button>
-            <button onClick={() => setEditing(false)}>{t("card.cancel")}</button>
+      {editing ? <EditHead d={d} wrap={wrap} onDone={() => setEditing(false)} /> : (
+        <div className="card-head">
+          <Icon name={iconFor(d.kind, d.icon)} size={26} />
+          <div className="card-title">
+            <div className="title-row">
+              <h2>{d.name}</h2>
+              {canEdit && <button className="icon" title={t("card.rename")} onClick={() => setEditing(true)}><IconEdit /></button>}
+              {hasNet && (
+                <span className={st.online ? "pill ok" : "pill"}>
+                  {st.online ? (st.since && isFinite(st.since) ? t("status.onlinesince", { t: ago(st.since) }) : t("status.online"))
+                    : st.last ? t("status.lastseen", { t: ago(st.last) }) : t("status.never")}
+                </span>
+              )}
+            </div>
+            <div className="sub">
+              {[d.kind, d.room ? [d.room.number, d.room.name].filter(Boolean).join(" ") : null, d.department?.name,
+                makeModel(d.manufacturer, d.model)].filter(Boolean).join(" · ")}
+            </div>
+            {d.parent && (
+              <div className="sub">{t("card.attachedto")}{" "}
+                <button className="link" onClick={() => onSelect({ kind: "device", id: d.parent!.id })}>{d.parent.name}</button>
+                {d.connection && ` · ${connectionLabel(d.connection)}`}
+              </div>
+            )}
           </div>
         </div>
-      ) : (
-        <div className="head">
-          <h2>{d.name}</h2>
-          {canEdit && <button className="icon" title={t("card.rename")} onClick={() => setEditing(true)}><IconEdit /></button>}
-          {(d.kind || d.description) && <div className="sub">{[d.kind, d.description].filter(Boolean).join(" · ")}</div>}
-        </div>
       )}
+
+      {d.remote.length > 0 && <div className="remote-row head-remote">{d.remote.map((e) => <RemoteButton key={`${e.tool}:${e.id ?? "auto"}`} e={e} />)}</div>}
 
       {pinned.map((n) => (
         <div key={n.id} className="warning"><IconWarn /><div>{n.text}<div className="meta">{t("note.by", { author: n.author, t: ago(n.updated_at) })}</div></div></div>
       ))}
       <NamingWarnings warnings={d.naming_warnings} />
 
-      <RemoteSection d={d} canEdit={canEdit} wrap={wrap} />
-
-      <PeopleSection d={d} canEdit={canEdit} wrap={wrap} />
-      <PlaceSection d={d} canEdit={canEdit} wrap={wrap} />
-
-      <NetboxSection d={d} isAdmin={isAdmin} wrap={wrap} />
-
-      <section>
-        <h3>{t("card.network")}</h3>
-        {d.interfaces.length === 0 && <div className="muted">{t("card.nointerfaces")}</div>}
-        {d.interfaces.map((i) => (
-          <div key={i.id} className="iface">
-            <NetTable n={i} mac={i.mac} />
-            {canEdit && (
-              <button className="link danger" onClick={wrap(() => api.removeInterface(i.id))}>{t("card.removemac")}</button>
-            )}
-          </div>
-        ))}
-        {canEdit && (
-          <form className="inline" onSubmit={(e) => { e.preventDefault(); wrap(async () => { await api.addInterface(d.id, newMac); setNewMac(""); })(); }}>
-            <input className="mono" placeholder="00:11:22:33:44:55" value={newMac} onChange={(e) => setNewMac(e.target.value)} />
-            <button disabled={!newMac.trim()}><IconPlus /> {t("card.addmac")}</button>
-          </form>
-        )}
-      </section>
-
-      <Notes d={d} canEdit={canEdit} wrap={wrap} />
-      <History events={d.events} />
-
-      {isAdmin && (
-        <div className="danger-zone">
-          <button className="danger" onClick={() => {
-            if (confirm(t("card.deleteconfirm", { name: d.name }))) wrap(async () => { await api.deleteDevice(d.id); onDeleted(); })();
-          }}><IconTrash /> {t("card.delete")}</button>
+      {(main || primary) && (
+        <div className="facts">
+          {main?.ip && <Fact label={t("card.ip")} value={main.ip} mono />}
+          {main && <Fact label={t("card.mac")} value={main.mac} mono />}
+          {main?.hostname && <Fact label={t("card.hostname")} value={main.hostname} mono />}
+          {primary && (
+            <Fact label={t("card.primary")}>
+              <span>{primary.display_name}</span>
+              {primary.phone && <> · <a href={`tel:${primary.phone.replace(/[^\d+]/g, "")}`}>{primary.phone}</a></>}
+            </Fact>
+          )}
         </div>
       )}
+
+      <Connection d={d} onSelect={onSelect} />
+      <Peripherals d={d} canEdit={canEdit} wrap={wrap} onSelect={onSelect} />
+
+      <div className="card-tabs" role="tablist">
+        {tabs.map(([k, label, n]) => (
+          <button key={k} role="tab" aria-selected={tab === k} className={tab === k ? "ctab active" : "ctab"} onClick={() => setTab(k)}>
+            {label}{n ? <span className="count-badge">{n}</span> : null}
+          </button>
+        ))}
+      </div>
+
+      {tab === "details" && (
+        <>
+          <PeopleSection d={d} canEdit={canEdit} wrap={wrap} />
+          <PlaceSection d={d} canEdit={canEdit} wrap={wrap} />
+          <DeviceData d={d} canEdit={canEdit} wrap={wrap} />
+          <NetworkSection d={d} canEdit={canEdit} wrap={wrap} />
+          <RemoteSection d={d} canEdit={canEdit} wrap={wrap} buttons={false} />
+          {isAdmin && (
+            <div className="danger-zone">
+              <button className="danger" onClick={() => {
+                if (confirm(t("card.deleteconfirm", { name: d.name }))) wrap(async () => { await api.deleteDevice(d.id); onDeleted(); })();
+              }}><IconTrash /> {t("card.delete")}</button>
+            </div>
+          )}
+        </>
+      )}
+      {tab === "notes" && <Notes d={d} canEdit={canEdit} wrap={wrap} />}
+      {tab === "history" && <History events={d.events} />}
+      {tab === "netbox" && <NetboxSection d={d} isAdmin={isAdmin} wrap={wrap} />}
     </>
+  );
+}
+
+function EditHead({ d, wrap, onDone }: { d: DeviceCard; wrap: Wrap; onDone: () => void }) {
+  const [name, setName] = useState(d.name);
+  const [kind, setKind] = useState(d.kind);
+  const [desc, setDesc] = useState(d.description);
+  const [icon, setIcon] = useState(d.icon);
+  const iconFor = useIconFor();
+  const fromNetbox = d.source === "netbox";
+  return (
+    <div className="edit-head">
+      <input className="title-input" value={name} disabled={fromNetbox} onChange={(e) => setName(e.target.value)} autoFocus />
+      {!fromNetbox && <NextName kind={kind} onUse={setName} />}
+      <label>{t("card.kind")}<KindInput value={kind} onChange={setKind} /></label>
+      <label>{t("card.description")}<textarea rows={3} value={desc} onChange={(e) => setDesc(e.target.value)} /></label>
+      <label>{t("card.icon")}
+        <span className="icon-select">
+          <Icon name={iconFor(kind, icon)} size={22} />
+          <select value={icon} onChange={(e) => setIcon(e.target.value)}>
+            <option value="">{t("card.icontype")}</option>
+            {ICON_NAMES.map((n) => <option key={n} value={n}>{n}</option>)}
+          </select>
+        </span>
+      </label>
+      <div className="row-actions">
+        <button className="primary" disabled={!name.trim()} onClick={wrap(async () => {
+          await api.updateDevice(d.id, fromNetbox ? { kind, description: desc, icon } : { name, kind, description: desc, icon });
+          onDone();
+        })}>{t("card.save")}</button>
+        <button onClick={onDone}>{t("card.cancel")}</button>
+      </div>
+    </div>
+  );
+}
+
+/** Where the device is plugged in: switch port, patch panel, a shared segment, and who else is there. */
+function Connection({ d, onSelect }: { d: DeviceCard; onSelect: (s: Selection) => void }) {
+  const iconFor = useIconFor();
+  const seg = d.segment;
+  if (!seg) return null;
+  const via = d.netbox?.interfaces.find((i) => i.via)?.via;
+  const shared = seg.behind_uplink || seg.peers.length > 0;
+  return (
+    <section className="tight">
+      <h3>{t("card.connection")}</h3>
+      <div className="chain">
+        <span className="node"><Icon name="switch-horizontal" size={15} /> {seg.switch} {seg.port}{seg.alias ? ` · ${seg.alias}` : ""}</span>
+        {via && <><span className="arrow">→</span><span className="node">{via}</span></>}
+        {(seg.behind_uplink || seg.peers.length > 0) && (
+          <><span className="arrow">→</span><span className="node dashed">{t("card.unmanaged", { n: seg.port_mac_count ?? seg.peers.length + 1 })}</span></>
+        )}
+        <span className="arrow">→</span>
+        <span className="node self"><Icon name={iconFor(d.kind, d.icon)} size={15} /> {d.name}</span>
+      </div>
+      {shared && seg.peers.length > 0 && (
+        <div className="peers">
+          <span className="sub">{t("card.sameport")}</span>
+          {seg.peers.map((p, i) => p.type === "device" ? (
+            <button key={i} className="chip small" onClick={() => onSelect({ kind: "device", id: p.id! })}>
+              <Icon name={iconFor(p.kind, p.icon)} size={14} /> {p.name}
+            </button>
+          ) : (
+            <button key={i} className="chip small unknown" onClick={() => onSelect({ kind: "mac", mac: p.mac! })}>
+              <Icon name="question-mark" size={14} /> {p.name ?? p.ip ?? p.mac}{p.vendor ? ` · ${p.vendor}` : ""}
+            </button>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function DeviceData({ d, canEdit, wrap }: { d: DeviceCard; canEdit: boolean; wrap: Wrap }) {
+  const [edit, setEdit] = useState(false);
+  const [f, setF] = useState({ manufacturer: d.manufacturer, model: d.model, serial: d.serial, connection: d.connection });
+  const fromNetbox = d.source === "netbox";
+  if (!edit) {
+    const rows: [string, React.ReactNode][] = [
+      [t("dev.manufacturer"), d.manufacturer], [t("dev.model"), d.model],
+      [t("dev.serial"), d.serial && <Copyable value={d.serial} mono />],
+      [t("dev.connection"), d.connection && (connectionLabel(d.connection))],
+      [t("dev.source"), fromNetbox ? t("dir.fromnetbox") : null],
+    ];
+    const shown = rows.filter(([, v]) => v);
+    return (
+      <section>
+        <h3>{t("dev.title")} {canEdit && <button className="link small" onClick={() => setEdit(true)}>{t("dir.edit")}</button>}</h3>
+        {shown.length ? <dl className="kv">{shown.map(([k, v]) => <div key={k}><dt>{k}</dt><dd>{v}</dd></div>)}</dl>
+          : <div className="muted">{t("card.none")}</div>}
+      </section>
+    );
+  }
+  return (
+    <section>
+      <h3>{t("dev.title")}</h3>
+      <div className="person-form compact">
+        {(["manufacturer", "model", "serial"] as const).map((k) => (
+          <label key={k}>{t(`dev.${k}`)}<input value={f[k]} disabled={fromNetbox} onChange={(e) => setF({ ...f, [k]: e.target.value })} /></label>
+        ))}
+        <label>{t("dev.connection")}<ConnectionSelect value={f.connection} onChange={(v) => setF({ ...f, connection: v })} /></label>
+        <div className="row-actions">
+          <button className="primary" onClick={wrap(async () => {
+            await api.updateDevice(d.id, fromNetbox ? { connection: f.connection } : f);
+            setEdit(false);
+          })}>{t("dir.save")}</button>
+          <button onClick={() => setEdit(false)}>{t("dir.cancel")}</button>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function NetworkSection({ d, canEdit, wrap }: { d: DeviceCard; canEdit: boolean; wrap: Wrap }) {
+  const [newMac, setNewMac] = useState("");
+  return (
+    <section>
+      <h3>{t("card.network")}</h3>
+      {d.interfaces.length === 0 && <div className="muted">{t("card.nointerfaces")}</div>}
+      {d.interfaces.map((i) => (
+        <div key={i.id} className="iface">
+          <NetTable n={i} mac={i.mac} />
+          {canEdit && <button className="link danger small" onClick={wrap(() => api.removeInterface(i.id))}>{t("card.removemac")}</button>}
+        </div>
+      ))}
+      {canEdit && (
+        <form className="inline" onSubmit={(e) => { e.preventDefault(); wrap(async () => { await api.addInterface(d.id, newMac); setNewMac(""); })(); }}>
+          <input className="mono" placeholder="00:11:22:33:44:55" value={newMac} onChange={(e) => setNewMac(e.target.value)} />
+          <button disabled={!newMac.trim()}><IconPlus /> {t("card.addmac")}</button>
+        </form>
+      )}
+    </section>
   );
 }
 
 function NetTable({ n, mac }: { n: NetInfo; mac: string }) {
   const rows: [string, React.ReactNode][] = [
-    [t("card.ip"), n.ip && <span className="mono">{n.ip}</span>],
-    [t("card.mac"), <span className="mono">{mac}</span>],
-    [t("card.hostname"), n.hostname],
+    [t("card.ip"), n.ip && <Copyable value={n.ip} mono />],
+    [t("card.mac"), <Copyable value={mac} mono />],
+    [t("card.hostname"), n.hostname && <Copyable value={n.hostname} mono />],
     [t("card.vendor"), n.vendor],
     [t("card.port"), n.port && <>{n.switch} {n.port}{n.port_alias ? ` (${n.port_alias})` : ""}</>],
     [t("card.vlan"), n.vlan],
@@ -153,7 +320,6 @@ function Notes({ d, canEdit, wrap }: { d: DeviceCard; canEdit: boolean; wrap: Wr
   const [pin, setPin] = useState(false);
   return (
     <section>
-      <h3>{t("card.notes")}</h3>
       {canEdit && (
         <form className="note-form" onSubmit={(e) => { e.preventDefault(); wrap(async () => { await api.addNote(d.id, text, pin); setText(""); setPin(false); })(); }}>
           <textarea rows={2} placeholder={t("note.placeholder")} value={text} onChange={(e) => setText(e.target.value)} />
@@ -163,6 +329,7 @@ function Notes({ d, canEdit, wrap }: { d: DeviceCard; canEdit: boolean; wrap: Wr
           </div>
         </form>
       )}
+      {!d.notes.length && !canEdit && <div className="muted">{t("card.none")}</div>}
       {d.notes.map((n) => (
         <div key={n.id} className={n.pinned ? "note pinned" : "note"}>
           <div className="note-text">{n.text}</div>
@@ -183,10 +350,9 @@ function Notes({ d, canEdit, wrap }: { d: DeviceCard; canEdit: boolean; wrap: Wr
 }
 
 function History({ events }: { events: EventItem[] }) {
-  if (!events.length) return null;
+  if (!events.length) return <section><div className="muted">{t("events.empty")}</div></section>;
   return (
     <section>
-      <h3>{t("card.history")}</h3>
       <ul className="events compact">
         {events.map((e, i) => <li key={i}><span className={`ev ${e.kind}`}>{e.kind}</span><span className="when">{datetime(e.ts)}</span><span>{e.message}</span></li>)}
       </ul>
@@ -207,9 +373,21 @@ function UnknownView({ u, canEdit, onSelect }: { u: UnknownCard; canEdit: boolea
   const fail = (e: unknown) => alert(t("err.generic", { msg: e instanceof ApiError ? e.message : String(e) }));
   return (
     <>
-      <div className="head">
-        <h2 className="unknown">{u.hostname ?? t("list.unnamed")}</h2>
-        <div className="sub">{t("card.unknown")}</div>
+      <div className="card-head">
+        <Icon name="question-mark" size={26} />
+        <div className="card-title">
+          <div className="title-row">
+            <h2 className="unknown">{u.hostname ?? t("list.unnamed")}</h2>
+            <span className={u.online ? "pill ok" : "pill"}>{u.online ? t("status.online") : u.last_seen ? t("status.lastseen", { t: ago(u.last_seen) }) : t("status.never")}</span>
+          </div>
+          <div className="sub">{[t("card.unknown"), u.vendor].filter(Boolean).join(" · ")}</div>
+        </div>
+      </div>
+      <div className="facts">
+        {u.ip && <Fact label={t("card.ip")} value={u.ip} mono />}
+        <Fact label={t("card.mac")} value={u.mac} mono />
+        {u.hostname && <Fact label={t("card.hostname")} value={u.hostname} mono />}
+        {u.port && <Fact label={t("card.port")} value={`${u.switch} ${u.port}`} />}
       </div>
       {canEdit && (
         <section className="adopt">
@@ -235,6 +413,7 @@ function UnknownView({ u, canEdit, onSelect }: { u: UnknownCard; canEdit: boolea
         <h3>{t("card.network")}</h3>
         <NetTable n={u} mac={u.mac} />
       </section>
+      <section><h3>{t("card.history")}</h3></section>
       <History events={u.events} />
     </>
   );

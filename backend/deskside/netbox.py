@@ -93,6 +93,11 @@ class Netbox:
         if "name" not in self.name_rx.groupindex:
             raise NetboxError("netbox.name_pattern needs a named group (?P<name>...)")
         self.import_rooms = bool(conf.get("import_locations", True))
+        imp = conf.get("import_devices") or {}
+        self.import_roles = {str(r).lower() for r in imp.get("roles") or []}
+        self.parent_rx = re.compile(imp["parent_pattern"], re.I) if imp.get("parent_pattern") else None
+        if self.parent_rx is not None and "parent" not in self.parent_rx.groupindex:
+            raise NetboxError("netbox.import_devices.parent_pattern needs a named group (?P<parent>...)")
         self.state = NetboxState(interval=int(conf.get("interval", 300)))
         # filled by sync(), read by the API
         self.by_mac: dict[str, NbIface] = {}
@@ -176,7 +181,9 @@ class Netbox:
                 return hit
         return None
 
-    def device_for(self, name: str, macs: list[str]) -> int | None:
+    def device_for(self, name: str, macs: list[str], external_id: str | None = None) -> int | None:
+        if external_id and external_id.startswith("netbox:device:"):
+            return int(external_id.rsplit(":", 1)[1])
         for mac in macs:
             if mac in self.by_mac:
                 return self.by_mac[mac].device_id
@@ -185,9 +192,9 @@ class Netbox:
     def device_url(self, nb_id: int) -> str:
         return f"{self.ui}/dcim/devices/{nb_id}/"
 
-    def info(self, name: str, macs: list[str]) -> dict[str, Any] | None:
+    def info(self, name: str, macs: list[str], external_id: str | None = None) -> dict[str, Any] | None:
         """What NetBox knows about a deskside device, for the device card."""
-        nb_id = self.device_for(name, macs)
+        nb_id = self.device_for(name, macs, external_id)
         if nb_id is None or nb_id not in self.devices:
             return None
         d = self.devices[nb_id]
@@ -195,11 +202,61 @@ class Netbox:
         return {
             "id": nb_id, "name": d.get("name"), "url": self.device_url(nb_id),
             "location": (d.get("location") or {}).get("name"),
-            "interfaces": [{"name": i.name, "macs": i.macs,
+            "interfaces": [{"name": i.name, "macs": i.macs, "via": self._via(i),
                             "endpoint": " ".join(filter(None, [((i.endpoints or [{}])[0].get("device") or {}).get("name"),
                                                                 (i.endpoints or [{}])[0].get("name")])) or None}
                            for i in ifaces],
         }
+
+    def _via(self, i: NbIface) -> str | None:
+        """The patch panel port in front of an interface, if it is cabled to one."""
+        if i.peer_type == "dcim.rearport" and i.peers:
+            front = self._front_for_rear.get(i.peers[0].get("id"))
+            if front:
+                return f"{front['device']['name']} {front['name']}"
+            return f"{(i.peers[0].get('device') or {}).get('name', '')} {i.peers[0].get('name', '')}".strip() or None
+        return None
+
+    def _import_devices(self) -> dict[str, int]:
+        """Create or update deskside devices for NetBox devices of the configured roles (peripherals)."""
+        if not self.import_roles:
+            return {}
+        from .db import Interface
+        created = 0
+        with self.db.session() as s:
+            all_devs = list(s.scalars(select(Device)))
+            by_ext = {d.external_id: d for d in all_devs if d.external_id}
+            by_name = {d.name.lower(): d for d in all_devs if d.source != "netbox"}
+            owned = {i.mac for d in all_devs for i in d.interfaces}
+            linked = {self.device_for(d.name, [i.mac for i in d.interfaces]) for d in all_devs if d.source != "netbox"}
+            for nb in self.devices.values():
+                role = ((nb.get("role") or {}).get("name") or "")
+                if role.lower() not in self.import_roles or nb["id"] in linked:
+                    continue
+                ext = f"netbox:device:{nb['id']}"
+                d = by_ext.get(ext)
+                if d is None:
+                    d = Device(source="netbox", external_id=ext, name=nb.get("name") or f"NetBox {nb['id']}")
+                    s.add(d)
+                    created += 1
+                dtype = nb.get("device_type") or {}
+                d.name = nb.get("name") or d.name
+                d.kind = role
+                d.manufacturer = ((dtype.get("manufacturer") or {}).get("name") or "")
+                d.model = dtype.get("model") or ""
+                d.serial = nb.get("serial") or ""
+                if d.parent_id is None and self.parent_rx is not None:
+                    m = self.parent_rx.match(d.name)
+                    parent = by_name.get(m.group("parent").lower()) if m else None
+                    if parent is not None:
+                        d.parent = parent
+                for iface in self.ifaces.values():
+                    if iface.device_id == nb["id"]:
+                        for mac in iface.macs:
+                            if mac not in owned:
+                                d.interfaces.append(Interface(mac=mac, label=iface.name))
+                                owned.add(mac)
+        return {"imported": created}
 
     # --- comparing -------------------------------------------------------------------------
     def _target_iface(self, nb_device: int, mac: str) -> NbIface | None:
@@ -228,7 +285,7 @@ class Netbox:
                         per_port.setdefault((sg.switch or "", sg.port), set()).add(dev.id)
             for d in devices:
                 macs = [i.mac for i in d.interfaces]
-                nb_id = self.device_for(d.name, macs)
+                nb_id = self.device_for(d.name, macs, d.external_id)
                 if nb_id is None:
                     continue
                 nb_name = self.devices.get(nb_id, {}).get("name", "?")
@@ -409,7 +466,7 @@ class Netbox:
             s.flush()
             by_ext = {r.external_id: r.id for r in s.scalars(select(Room).where(Room.source == "netbox"))}
             for d in s.scalars(select(Device).where(Device.room_id.is_(None))):
-                nb_id = self.device_for(d.name, [i.mac for i in d.interfaces])
+                nb_id = self.device_for(d.name, [i.mac for i in d.interfaces], d.external_id)
                 loc = (self.devices.get(nb_id, {}).get("location") or {}) if nb_id else {}
                 if loc.get("id") and f"netbox:location:{loc['id']}" in by_ext:
                     d.room_id = by_ext[f"netbox:location:{loc['id']}"]
@@ -421,10 +478,12 @@ class Netbox:
         try:
             await self.load()
             await self._load_front_ports()
+            imported = await asyncio.to_thread(self._import_devices)
             await asyncio.to_thread(self._import_rooms)
             counts = await asyncio.to_thread(self._store_proposals, await asyncio.to_thread(self.compare))
             counts["written"] = await self.auto_writes()
             counts["devices"] = len(self.devices)
+            counts.update(imported)
             st.counts, st.error, st.last_ok = counts, None, time.time()
             return True
         except NetboxError as exc:

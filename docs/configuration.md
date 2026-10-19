@@ -158,7 +158,7 @@ Accounts are managed under **Users** (admins only). Passwords need at least 12 c
 | Role | Can |
 |---|---|
 | Viewer | Search and read everything |
-| Editor | Additionally create and rename devices, add and remove MAC addresses, write, pin and delete notes, and maintain rooms, departments, people and who uses which device |
+| Editor | Additionally create and rename devices, add and remove MAC addresses, attach and detach devices, write, pin and delete notes, choose icons, and maintain rooms, departments, people and who uses which device |
 | Admin | Additionally delete devices and manage accounts |
 
 Every change made through the interface or the API is recorded with user and time. Sign-in via OpenID Connect is planned.

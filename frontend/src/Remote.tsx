@@ -13,7 +13,7 @@ function copyText(text: string) {
   return Promise.resolve();
 }
 
-function RemoteButton({ e }: { e: RemoteEntry }) {
+export function RemoteButton({ e }: { e: RemoteEntry }) {
   const [copied, setCopied] = useState(false);
   const title = [e.tool_label, e.label, e.value].filter(Boolean).join(" · ");
   const text = e.label ? `${e.tool_label} (${e.label})` : e.tool_label;
@@ -36,7 +36,7 @@ function RemoteButton({ e }: { e: RemoteEntry }) {
   );
 }
 
-export function RemoteSection({ d, canEdit, wrap }: { d: DeviceCard; canEdit: boolean; wrap: Wrap }) {
+export function RemoteSection({ d, canEdit, wrap, buttons = true }: { d: DeviceCard; canEdit: boolean; wrap: Wrap; buttons?: boolean }) {
   const [tools, setTools] = useState<RemoteTool[]>([]);
   const [adding, setAdding] = useState(false);
   const [tool, setTool] = useState("");
@@ -49,10 +49,12 @@ export function RemoteSection({ d, canEdit, wrap }: { d: DeviceCard; canEdit: bo
   return (
     <section>
       <h3>{t("remote.title")}</h3>
-      <div className="remote-row">
-        {d.remote.map((e) => <RemoteButton key={`${e.tool}:${e.id ?? "auto"}`} e={e} />)}
-        {!d.remote.length && <span className="muted">{t("remote.none")}</span>}
-      </div>
+      {buttons && (
+        <div className="remote-row">
+          {d.remote.map((e) => <RemoteButton key={`${e.tool}:${e.id ?? "auto"}`} e={e} />)}
+        </div>
+      )}
+      {!d.remote.length && <span className="muted">{t("remote.none")}</span>}
       {canEdit && d.remote.some((e) => e.id !== null) && (
         <ul className="plain remote-list">
           {d.remote.filter((e) => e.id !== null).map((e) => (

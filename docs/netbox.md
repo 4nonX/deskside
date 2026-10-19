@@ -19,6 +19,21 @@ Each linked device card shows the NetBox device with a link, its location, and f
 
 Every NetBox location becomes a room in deskside, with the site as building. These rooms are read-only in deskside; rename them in NetBox. A linked device without a room gets the room of its NetBox location. A room you set by hand is never overwritten. Set `import_locations: false` to keep rooms and locations separate.
 
+## Peripherals from NetBox
+
+If NetBox already lists monitors, printers, phones and other equipment, deskside can take them over and attach them to the right workstation:
+
+```yaml
+netbox:
+  import_devices:
+    roles: [Monitor, Printer, Phone, Scanner, Docking station]   # NetBox device roles to take over
+    parent_pattern: '^(?P<parent>WS\d+)-'                         # "WS05-Monitor" belongs to WS05
+```
+
+For each NetBox device with one of these roles, deskside creates a device with the role as type, and manufacturer, model and serial number from NetBox. If its name matches `parent_pattern`, it is attached to the deskside device named by the `parent` group. Name, manufacturer, model and serial number stay in sync with NetBox and are read-only in deskside; type, icon, connection and notes can be changed. A parent you set by hand is never overwritten. MAC addresses recorded in NetBox for these devices are added too, so a network printer picks up its live data.
+
+NetBox devices that already correspond to a deskside device (matched by MAC address or `name_pattern`) are not imported twice.
+
 ## What deskside writes on its own
 
 Only two things, both switchable:

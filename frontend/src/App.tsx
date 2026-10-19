@@ -1,14 +1,20 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ApiError, api, subscribe, type Me, type Row } from "./api";
 import { ago, t } from "./i18n";
-import { IconPin, IconPort, IconSearch } from "./icons";
-import { Card, type Selection } from "./Card";
+import { IconPin, IconSearch } from "./icons";
+import { Card } from "./Card";
+import type { Selection } from "./fields";
 import { EventsView, SourcesView, UsersView } from "./Views";
 import { DirectoryView } from "./Directory";
 import { NetboxView } from "./Netbox";
+import { MapView } from "./MapView";
+import { RoomsView } from "./RoomsView";
+import { Copyable } from "./Copy";
+import { Icon, KindIcons, useIconFor } from "./iconset";
 
-type Tab = "devices" | "directory" | "netbox" | "events" | "sources" | "users";
-type Show = "all" | "known" | "unknown" | "online";
+type Tab = "devices" | "directory" | "netbox" | "events" | "admin";
+type View = "list" | "map" | "rooms";
+type Show = "all" | "known" | "unknown" | "online" | "peripherals";
 
 export function App() {
   const [me, setMe] = useState<Me | null | undefined>(undefined);
@@ -42,8 +48,15 @@ function Login({ onDone }: { onDone: (m: Me) => void }) {
   );
 }
 
+function readView(): View {
+  const v = new URLSearchParams(location.search).get("view");
+  return v === "map" || v === "rooms" ? v : "list";
+}
+
 function Main({ me, onSignOut }: { me: Me; onSignOut: () => void }) {
   const [tab, setTab] = useState<Tab>("devices");
+  const [view, setView] = useState<View>(readView);
+  const [admin, setAdmin] = useState<"sources" | "users">("sources");
   const [q, setQ] = useState(() => new URLSearchParams(location.search).get("q") ?? "");
   const [show, setShow] = useState<Show>("all");
   const [rows, setRows] = useState<Row[]>([]);
@@ -51,18 +64,23 @@ function Main({ me, onSignOut }: { me: Me; onSignOut: () => void }) {
   const [sel, setSel] = useState<Selection | null>(null);
   const [live, setLive] = useState(true);
   const [tick, setTick] = useState(0);
+  const [kindIcons, setKindIcons] = useState<Record<string, string>>({});
   const searchRef = useRef<HTMLInputElement>(null);
 
+  const loadKinds = useCallback(() => api.kinds()
+    .then((k) => setKindIcons(Object.fromEntries(k.filter((x) => x.icon).map((x) => [x.kind, x.icon])))).catch(() => undefined), []);
   const load = useCallback(async () => {
     try {
-      const res = await api.devices(q, show);
+      // Rooms need every device (including peripherals) to build the tree; the list filters on the client.
+      const res = await api.devices(view === "rooms" ? "" : q, show === "peripherals" ? "known" : show);
       setRows(res.rows); setTotal(res.total); setLive(true);
     } catch (e) {
       if (e instanceof ApiError && e.status === 401) onSignOut();
     }
-  }, [q, show, onSignOut]);
+  }, [q, show, view, onSignOut]);
 
   useEffect(() => { const h = setTimeout(load, 150); return () => clearTimeout(h); }, [load]);
+  useEffect(() => { loadKinds(); }, [loadKinds, tick]);
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout> | undefined;
     const stop = subscribe((m) => {
@@ -74,8 +92,9 @@ function Main({ me, onSignOut }: { me: Me; onSignOut: () => void }) {
   useEffect(() => {
     const url = new URL(location.href);
     if (q) url.searchParams.set("q", q); else url.searchParams.delete("q");
+    if (view !== "list") url.searchParams.set("view", view); else url.searchParams.delete("view");
     history.replaceState(null, "", url);
-  }, [q]);
+  }, [q, view]);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "/" && document.activeElement?.tagName !== "INPUT" && document.activeElement?.tagName !== "TEXTAREA") {
@@ -87,54 +106,86 @@ function Main({ me, onSignOut }: { me: Me; onSignOut: () => void }) {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
+  // Peripherals clutter the list; they appear when searched for or when the peripherals filter is on.
+  const listRows = useMemo(() => {
+    if (show === "peripherals") return rows.filter((r) => r.parent_id);
+    if (q.trim()) return rows;
+    return rows.filter((r) => !r.parent_id);
+  }, [rows, show, q]);
+
+  const open = (s: Selection) => { setSel(s); setTab("devices"); if (view === "rooms") setView("list"); };
   const tabs: [Tab, string][] = [["devices", t("app.devices")], ["directory", t("app.directory")], ["netbox", "NetBox"],
-    ["events", t("app.events")], ["sources", t("app.sources")]];
-  if (me.role === "admin") tabs.push(["users", t("app.users")]);
+    ["events", t("app.events")], ["admin", t("app.admin")]];
+  const withCard = !!sel && tab === "devices";
 
   return (
-    <div className={`layout ${sel && tab === "devices" ? "with-card" : ""}`}>
-      <header className="top">
-        <div className="brand">deskside</div>
-        <div className="search">
-          <IconSearch />
-          <input ref={searchRef} value={q} placeholder={t("app.search")} spellCheck={false}
-                 onChange={(e) => { setQ(e.target.value); setTab("devices"); }}
-                 onKeyDown={(e) => { if (e.key === "Enter" && rows.length) setSel(selOf(rows[0])); }} />
-        </div>
-        <nav>
-          {tabs.map(([k, label]) => (
-            <button key={k} className={tab === k ? "tab active" : "tab"} onClick={() => setTab(k)}>{label}</button>
-          ))}
-        </nav>
-        <div className="me">
-          <span className={live ? "live on" : "live"} title={live ? t("app.live") : t("app.offline")} />
-          <span>{me.username}</span>
-          <button className="link" onClick={onSignOut}>{t("app.signout")}</button>
-        </div>
-      </header>
-
-      {tab === "devices" && (
-        <main className="list">
-          <div className="filters">
-            {(["all", "known", "unknown", "online"] as Show[]).map((s) => (
-              <button key={s} className={show === s ? "chip active" : "chip"} onClick={() => setShow(s)}>{t(`filter.${s}`)}</button>
-            ))}
-            <span className="count">{t("list.count", { shown: rows.length, total })}</span>
+    <KindIcons.Provider value={kindIcons}>
+      <div className={`layout ${withCard ? "with-card" : ""}`}>
+        <header className="top">
+          <div className="brand">deskside</div>
+          <div className="search">
+            <IconSearch />
+            <input ref={searchRef} value={q} placeholder={t("app.search")} spellCheck={false}
+                   onChange={(e) => { setQ(e.target.value); setTab("devices"); }}
+                   onKeyDown={(e) => { if (e.key === "Enter" && listRows.length) setSel(selOf(listRows[0])); }} />
           </div>
-          <DeviceTable rows={rows} selected={sel} onSelect={setSel} />
-        </main>
-      )}
-      {tab === "events" && <main className="page"><EventsView onOpen={(s) => { setSel(s); setTab("devices"); }} /></main>}
-      {tab === "directory" && <main className="page"><DirectoryView me={me} /></main>}
-      {tab === "netbox" && <main className="page"><NetboxView me={me} onOpen={(s) => { setSel(s); setTab("devices"); }} /></main>}
-      {tab === "sources" && <main className="page"><SourcesView /></main>}
-      {tab === "users" && <main className="page"><UsersView me={me} /></main>}
+          <nav>
+            {tabs.map(([k, label]) => (
+              <button key={k} className={tab === k ? "tab active" : "tab"} onClick={() => setTab(k)}>{label}</button>
+            ))}
+          </nav>
+          <div className="me">
+            <span className={live ? "live on" : "live"} title={live ? t("app.live") : t("app.offline")} />
+            <span>{me.username}</span>
+            <button className="link" onClick={onSignOut}>{t("app.signout")}</button>
+          </div>
+        </header>
 
-      {sel && tab === "devices" && (
-        <Card key={`${sel.kind}:${sel.kind === "device" ? sel.id : sel.mac}`} sel={sel} me={me} tick={tick}
-              onClose={() => setSel(null)} onSelect={setSel} />
-      )}
-    </div>
+        {tab === "devices" && (
+          <main className={view === "list" ? "list" : "page"}>
+            <div className={view === "list" ? "filters" : "filters inline-tabs"}>
+              <div className="segmented" role="tablist">
+                {(["list", "map", "rooms"] as View[]).map((v) => (
+                  <button key={v} role="tab" aria-selected={view === v} className={view === v ? "active" : ""} onClick={() => setView(v)}>
+                    <Icon name={v === "list" ? "stack-2" : v === "map" ? "topology-star-3" : "door"} size={15} /> {t(`view.${v}` as "view.list")}
+                  </button>
+                ))}
+              </div>
+              {view === "list" && (
+                <>
+                  {(["all", "known", "unknown", "online", "peripherals"] as Show[]).map((s) => (
+                    <button key={s} className={show === s ? "chip active" : "chip"} onClick={() => setShow(s)}>{t(`filter.${s}` as "filter.all")}</button>
+                  ))}
+                  <span className="count">{t("list.count", { shown: listRows.length, total })}</span>
+                </>
+              )}
+            </div>
+            {view === "list" && <DeviceTable rows={listRows} selected={sel} onSelect={setSel} />}
+            {view === "map" && <MapView q={q} tick={tick} onOpen={setSel} />}
+            {view === "rooms" && <RoomsView rows={rows} onOpen={open} />}
+          </main>
+        )}
+        {tab === "events" && <main className="page"><EventsView onOpen={open} /></main>}
+        {tab === "directory" && <main className="page"><DirectoryView me={me} onKindsChanged={loadKinds} /></main>}
+        {tab === "netbox" && <main className="page"><NetboxView me={me} onOpen={open} /></main>}
+        {tab === "admin" && (
+          <main className="page">
+            {me.role === "admin" && (
+              <div className="filters inline-tabs">
+                <button className={admin === "sources" ? "chip active" : "chip"} onClick={() => setAdmin("sources")}>{t("app.sources")}</button>
+                <button className={admin === "users" ? "chip active" : "chip"} onClick={() => setAdmin("users")}>{t("app.users")}</button>
+              </div>
+            )}
+            {(admin === "sources" || me.role !== "admin") ? <SourcesView /> : <UsersView me={me} />}
+          </main>
+        )}
+
+        {withCard && (
+          <Card key={`${sel!.kind}:${sel!.kind === "device" ? sel!.id : sel!.mac}`} sel={sel!} me={me} tick={tick}
+                onClose={() => setSel(null)} onSelect={setSel} />
+        )}
+      </div>
+    </KindIcons.Provider>
   );
 }
 
@@ -143,6 +194,7 @@ function selOf(r: Row): Selection {
 }
 
 function DeviceTable({ rows, selected, onSelect }: { rows: Row[]; selected: Selection | null; onSelect: (s: Selection) => void }) {
+  const iconFor = useIconFor();
   const isSel = useMemo(() => (r: Row) =>
     !!selected && (selected.kind === "device" ? r.id === selected.id : r.type === "unknown" && r.mac === selected.mac), [selected]);
   if (!rows.length) return <div className="empty">{t("list.empty")}</div>;
@@ -156,27 +208,39 @@ function DeviceTable({ rows, selected, onSelect }: { rows: Row[]; selected: Sele
         {rows.map((r) => (
           <tr key={r.type === "device" ? `d${r.id}` : `m${r.mac}`} className={isSel(r) ? "selected" : ""} onClick={() => onSelect(selOf(r))}>
             <td>
-              <div className={r.type === "device" ? "name" : "name unknown"}>
-                {r.name ?? r.hostname ?? t("list.unnamed")}
-                {r.pinned.length > 0 && <span className="pin-flag" title={r.pinned.join("\n")}><IconPin /></span>}
+              <div className="name-cell">
+                <Icon name={iconFor(r.kind, r.icon, r.type === "unknown")} size={20} />
+                <div>
+                  <div className={r.type === "device" ? "name" : "name unknown"}>
+                    {r.name ?? r.hostname ?? t("list.unnamed")}
+                    {r.pinned.length > 0 && <span className="pin-flag" title={r.pinned.join("\n")}><IconPin /></span>}
+                    {r.children > 0 && <span className="tag muted">+{r.children}</span>}
+                  </div>
+                  <div className="sub">
+                    {r.type === "device" && r.hostname ? <Copyable value={r.hostname} /> : null}
+                    {r.type === "device" && r.hostname && r.kind ? " · " : null}
+                    {[r.kind, r.type === "unknown" ? r.vendor : null].filter(Boolean).join(" · ")}
+                  </div>
+                </div>
               </div>
-              <div className="sub">{[r.kind, r.type === "device" ? r.hostname : null, r.vendor].filter(Boolean).join(" · ")}</div>
             </td>
             <td>{r.people[0]}{r.people.length > 1 && <span className="sub"> +{r.people.length - 1}</span>}</td>
             <td>{r.room}{r.department && <div className="sub">{r.department}</div>}</td>
-            <td className="mono">{r.ip}</td>
-            <td className="mono">{r.mac}</td>
+            <td><Copyable value={r.ip} mono /></td>
+            <td><Copyable value={r.mac} mono /></td>
             <td>
-              {r.port && (
-                <span className={r.behind_uplink ? "port behind" : "port"}>
-                  <IconPort /> {r.switch} {r.port}
-                </span>
+              {r.parent ? <span className="sub">{t("card.attachedto")} {r.parent}</span> : r.port && (
+                <span className={r.behind_uplink ? "port behind" : "port"}>{r.switch} {r.port}</span>
               )}
               {r.port_alias && <div className="sub">{r.port_alias}</div>}
             </td>
             <td>
-              <span className={r.online ? "dot on" : "dot"} />
-              {r.online ? t("status.online") : r.last_seen ? t("status.lastseen", { t: ago(r.last_seen) }) : t("status.never")}
+              {r.macs.length > 0 && (
+                <>
+                  <span className={r.online ? "dot on" : "dot"} />
+                  {r.online ? t("status.online") : r.last_seen ? t("status.lastseen", { t: ago(r.last_seen) }) : t("status.never")}
+                </>
+              )}
             </td>
           </tr>
         ))}

@@ -66,6 +66,24 @@ const en = {
   "nb.readonly": "deskside is set to read-only for NetBox: proposals are shown but cannot be applied, and nothing is written automatically.",
   "nb.explain": "Differences between what the network shows and what NetBox records. Nothing changes in NetBox until an admin applies a proposal. Proposals that no longer apply are marked resolved on their own.",
   "dir.fromnetbox": "from NetBox",
+  "app.admin": "Admin", "filter.peripherals": "Peripherals", "card.icon": "Icon", "card.icontype": "Icon of the device type",
+  "view.list": "List", "view.map": "Network map", "view.rooms": "Rooms",
+  "status.onlinesince": "online since {t}", "card.details": "Details", "card.connection": "Connection",
+  "card.attachedto": "attached to", "card.sameport": "Also on this port:", "card.unmanaged": "shared segment, {n} addresses",
+  "per.title": "Attached devices", "per.new": "New attached device", "per.attach": "Attach existing device",
+  "per.detach": "Detach", "per.more": "{n} more", "per.currently": "currently attached to {name}",
+  "dev.title": "Device data", "dev.manufacturer": "Manufacturer", "dev.model": "Model", "dev.serial": "Serial number",
+  "dev.connection": "Connected via", "dev.source": "Source",
+  "conn.usb": "USB", "conn.usb-c": "USB-C", "conn.dp": "DisplayPort", "conn.hdmi": "HDMI", "conn.vga": "VGA", "conn.dvi": "DVI",
+  "conn.dock": "docking station", "conn.network": "network", "conn.wifi": "Wi-Fi", "conn.bluetooth": "Bluetooth",
+  "conn.serial": "serial", "conn.audio": "audio", "conn.power": "power", "conn.other": "other",
+  "map.uplink": "uplink", "map.uplinkgroup": "towards another switch", "map.shared": "unmanaged switch or shared port · {n} addresses",
+  "map.ports": "{n} ports in use", "map.unplaced": "Not on the network right now",
+  "map.unplacedhint": "Devices with attached equipment that no switch sees at the moment", "map.empty": "No switch data yet.",
+  "rooms.none": "No room", "rooms.count": "{n} devices",
+  "dir.kinds": "Device types", "kinds.hint": "Pick an icon per device type. It is used in the list, on cards and in the network map. Devices can still have their own icon.",
+  "kinds.devices": "{n} devices", "kinds.auto": "icon chosen automatically", "kinds.change": "Change icon",
+  "kinds.search": "Filter icons …", "kinds.reset": "Automatic", "kinds.empty": "No device types yet. Types appear here as soon as devices have one.",
   "nb.summary.mac": "Add MAC {mac} to {device} {iface}",
   "nb.summary.cable": "Connect {port} to {target} ({device})",
   "nb.summary.moved": "{device} {iface} was seen on {seen}, NetBox has {recorded}: move that cable",
@@ -140,6 +158,24 @@ const de: Partial<Record<Key, string>> = {
   "nb.readonly": "deskside ist für NetBox auf Nur-Lesen gestellt: Vorschläge werden angezeigt, lassen sich aber nicht übernehmen, und nichts wird automatisch geschrieben.",
   "nb.explain": "Unterschiede zwischen dem, was das Netz zeigt, und dem, was in NetBox steht. In NetBox ändert sich nichts, bis ein Admin einen Vorschlag übernimmt. Vorschläge, die nicht mehr zutreffen, werden von selbst als erledigt markiert.",
   "dir.fromnetbox": "aus NetBox",
+  "app.admin": "Verwaltung", "filter.peripherals": "Peripherie", "card.icon": "Icon", "card.icontype": "Icon des Gerätetyps",
+  "view.list": "Liste", "view.map": "Netzplan", "view.rooms": "Räume",
+  "status.onlinesince": "online seit {t}", "card.details": "Details", "card.connection": "Verbindung",
+  "card.attachedto": "hängt an", "card.sameport": "Ebenfalls an diesem Port:", "card.unmanaged": "geteiltes Segment, {n} Adressen",
+  "per.title": "Angeschlossene Geräte", "per.new": "Neues Gerät anschließen", "per.attach": "Vorhandenes Gerät anhängen",
+  "per.detach": "Abhängen", "per.more": "{n} weitere", "per.currently": "hängt derzeit an {name}",
+  "dev.title": "Gerätedaten", "dev.manufacturer": "Hersteller", "dev.model": "Modell", "dev.serial": "Seriennummer",
+  "dev.connection": "Angeschlossen über", "dev.source": "Quelle",
+  "conn.usb": "USB", "conn.usb-c": "USB-C", "conn.dp": "DisplayPort", "conn.hdmi": "HDMI", "conn.vga": "VGA", "conn.dvi": "DVI",
+  "conn.dock": "Dockingstation", "conn.network": "Netzwerk", "conn.wifi": "WLAN", "conn.bluetooth": "Bluetooth",
+  "conn.serial": "seriell", "conn.audio": "Audio", "conn.power": "Strom", "conn.other": "sonstiges",
+  "map.uplink": "Uplink", "map.uplinkgroup": "zu einem weiteren Switch", "map.shared": "nicht verwalteter Switch oder geteilter Port · {n} Adressen",
+  "map.ports": "{n} belegte Ports", "map.unplaced": "Gerade nicht im Netz",
+  "map.unplacedhint": "Geräte mit angeschlossener Peripherie, die gerade kein Switch sieht", "map.empty": "Noch keine Switch-Daten.",
+  "rooms.none": "Ohne Raum", "rooms.count": "{n} Geräte",
+  "dir.kinds": "Gerätetypen", "kinds.hint": "Pro Gerätetyp ein Icon wählen. Es erscheint in der Liste, auf Karten und im Netzplan. Einzelne Geräte können trotzdem ein eigenes Icon haben.",
+  "kinds.devices": "{n} Geräte", "kinds.auto": "Icon automatisch gewählt", "kinds.change": "Icon ändern",
+  "kinds.search": "Icons filtern …", "kinds.reset": "Automatisch", "kinds.empty": "Noch keine Gerätetypen. Typen erscheinen hier, sobald Geräte einen haben.",
   "nb.summary.mac": "MAC {mac} bei {device} {iface} ergänzen",
   "nb.summary.cable": "{port} mit {target} verbinden ({device})",
   "nb.summary.moved": "{device} {iface} hängt an {seen}, in NetBox steht {recorded}: dieses Kabel umstecken",
@@ -152,7 +188,7 @@ const table = tables[lang] ?? en;
 export const locale = tables[lang] ? navigator.language : "en";
 
 export function t(key: Key, vars: Record<string, string | number> = {}): string {
-  const s = table[key] ?? en[key];
+  const s: string = table[key] ?? en[key] ?? String(key);
   return s.replace(/\{(\w+)\}/g, (_, k) => String(vars[k] ?? ""));
 }
 

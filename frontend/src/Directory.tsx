@@ -2,8 +2,9 @@ import { Fragment, useCallback, useEffect, useState } from "react";
 import { ApiError, api, type Department, type Me, type Person, type PersonInput, type Room, type RoomInput } from "./api";
 import { t } from "./i18n";
 import { Contact, roomLabel } from "./Place";
+import { KindsEditor } from "./Kinds";
 
-type Section = "rooms" | "departments" | "people";
+type Section = "rooms" | "departments" | "people" | "kinds";
 
 function useRun(reload: () => Promise<unknown>) {
   return (fn: () => Promise<unknown>) => async () => {
@@ -11,7 +12,7 @@ function useRun(reload: () => Promise<unknown>) {
   };
 }
 
-export function DirectoryView({ me }: { me: Me }) {
+export function DirectoryView({ me, onKindsChanged }: { me: Me; onKindsChanged: () => void }) {
   const [section, setSection] = useState<Section>("rooms");
   const canEdit = me.role !== "viewer";
   const [hasDirectory, setHasDirectory] = useState(false);
@@ -19,7 +20,7 @@ export function DirectoryView({ me }: { me: Me }) {
   return (
     <>
       <div className="filters inline-tabs">
-        {(["rooms", "departments", "people"] as Section[]).map((s) => (
+        {(["rooms", "departments", "people", "kinds"] as Section[]).map((s) => (
           <button key={s} className={section === s ? "chip active" : "chip"} onClick={() => setSection(s)}>{t(`dir.${s}` as const)}</button>
         ))}
         {me.role === "admin" && hasDirectory && <SyncButton />}
@@ -27,6 +28,7 @@ export function DirectoryView({ me }: { me: Me }) {
       {section === "rooms" && <Rooms canEdit={canEdit} />}
       {section === "departments" && <Departments canEdit={canEdit} />}
       {section === "people" && <People canEdit={canEdit} />}
+      {section === "kinds" && <KindsEditor canEdit={canEdit} onChanged={onKindsChanged} />}
     </>
   );
 }

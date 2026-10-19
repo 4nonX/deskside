@@ -114,3 +114,31 @@ def test_remote_entries_rdp_download_and_search(client):
     assert rdp.status_code == 200 and rdp.headers["content-type"].startswith("application/x-rdp")
     assert "full address:s:ws05.example.org" in rdp.text and 'filename="WS05.rdp"' in rdp.headers["content-disposition"]
     assert [r["name"] for r in client.get("/api/devices", params={"q": "987654321"}).json()["rows"]] == ["WS05"]
+
+
+def test_peripherals_relations_and_topology(client):
+    from deskside.db import Sighting
+    pc = client.post("/api/devices", json={"name": "WS07", "kind": "workstation", "mac": "00:00:5e:00:53:07"}).json()["id"]
+    mon = client.post("/api/devices", json={"name": "WS07 monitor", "kind": "monitor", "parent_id": pc, "connection": "dp",
+                                            "manufacturer": "Example", "model": "M24", "serial": "SN-1"}).json()["id"]
+    dock = client.post("/api/devices", json={"name": "WS07 dock", "kind": "dock", "parent_id": pc}).json()["id"]
+    # no cycles: a device cannot hang off its own peripheral
+    assert client.patch(f"/api/devices/{pc}", json={"parent_id": mon}).status_code == 400
+    assert client.patch(f"/api/devices/{mon}", json={"parent_id": dock}).status_code == 200
+    with client.app.state.db.session() as s:
+        s.add(Sighting(mac="00:00:5E:00:53:07", ip="10.0.10.107", switch="core", port="GigabitEthernet9", online=True,
+                       port_mac_count=2))
+        s.add(Sighting(mac="00:00:5E:00:53:99", ip="10.0.10.99", switch="core", port="GigabitEthernet9", online=True,
+                       port_mac_count=2, hostname="printer"))
+    card = client.get(f"/api/devices/{pc}").json()
+    assert [c["name"] for c in card["children"]] == ["WS07 dock"]
+    assert card["segment"]["port"] == "GigabitEthernet9" and card["segment"]["peers"][0]["name"] == "printer"
+    assert client.get(f"/api/devices/{mon}").json()["parent"]["name"] == "WS07 dock"
+    assert [r["name"] for r in client.get("/api/devices", params={"q": "SN-1"}).json()["rows"]] == ["WS07 monitor"]
+    topo = client.get("/api/topology").json()
+    port = topo["switches"][0]["ports"][0]
+    assert port["shared"] is True and port["items"][0]["name"] == "WS07"
+    assert port["items"][0]["children"][0]["children"][0]["name"] == "WS07 monitor"
+    assert client.put("/api/kinds/monitor", json={"icon": "device-desktop"}).status_code == 200
+    assert {k["kind"]: k["icon"] for k in client.get("/api/kinds").json()}["monitor"] == "device-desktop"
+    assert client.put("/api/kinds/monitor", json={"icon": "<svg>"}).status_code == 400
