@@ -59,6 +59,32 @@ Reads a lease file or an export on disk. Mount the file read-only into the conta
 | `isc` | ISC dhcpd's `dhcpd.leases` |
 | `kea-csv` | Kea's memfile, usually `kea-leases4.csv` |
 
+## dhcp-push
+
+The same exports as `dhcp-file`, but the DHCP server uploads them itself. deskside needs no share, no mounted file and no account on the DHCP server; the server only needs to reach deskside over HTTPS.
+
+```yaml
+sources:
+  - type: dhcp-push
+    name: dhcp
+    format: windows-csv
+    token_file: /run/secrets/dhcp_push_token   # at least 24 random characters
+    max_age: 1800                              # an upload older than this counts as missing
+```
+
+On a Windows DHCP server, a scheduled task (every five minutes, as SYSTEM) runs:
+
+```powershell
+$csv = Get-DhcpServerv4Scope | Get-DhcpServerv4Lease |
+  Select-Object @{n='IPAddress';e={$_.IPAddress.ToString()}},ClientId,HostName,AddressState,LeaseExpiryTime |
+  ConvertTo-Csv -NoTypeInformation | Out-String
+$token = Get-Content 'C:\ProgramData\deskside\push-token.txt' -Raw
+Invoke-RestMethod -Method Post -Uri 'https://deskside.example.org/api/ingest/dhcp' `
+  -Headers @{ Authorization = "Bearer $($token.Trim())" } -ContentType 'text/csv; charset=utf-8' -Body $csv
+```
+
+Keep the token file readable for SYSTEM and administrators only. The upload is authenticated by the token alone, so use HTTPS. deskside answers `{"ok": true, "addresses": <count>}` and merges the data right away. The last upload is kept in memory; after a restart the source shows "no upload received yet" until the next one arrives.
+
 ## dhcp-windows
 
 Reads leases from a Windows DHCP Server over WinRM, without a file in between.

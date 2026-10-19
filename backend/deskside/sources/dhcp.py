@@ -1,9 +1,11 @@
 """DHCP lease sources.
 
-Four ways in, so most DHCP servers are covered:
+Five ways in, so most DHCP servers are covered:
 
 * ``dhcp-file``: a lease file or export on disk (Windows PowerShell CSV,
   Windows DHCP console export, dnsmasq, ISC dhcpd, Kea memfile CSV)
+* ``dhcp-push``: the same exports, uploaded by the DHCP server itself to
+  ``POST /api/ingest/<source name>`` (no share, no account for deskside)
 * ``dhcp-windows``: Windows DHCP Server over WinRM, read-only
 * ``dhcp-kea``: the Kea control agent API
 * ``dhcp-opnsense``: the OPNsense API (ISC or Kea backend)
@@ -14,14 +16,17 @@ from __future__ import annotations
 import asyncio
 import csv
 import io
+import hmac
 import json
 import re
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 import httpx
 
+from .. import tls
 from ..netaddr import normalize_mac, parse_ip
 from .base import AddressEntry, Snapshot, Source, SourceError
 
@@ -157,8 +162,59 @@ class DhcpFile(Source):
             raw = await asyncio.to_thread(path.read_bytes)
         except OSError as exc:
             raise SourceError(f"source {self.name}: cannot read {path}: {exc.strerror}") from exc
-        text = raw.decode("utf-8-sig", errors="replace") if not raw.startswith(b"\xff\xfe") else raw.decode("utf-16")
-        return Snapshot(addresses=parser(text))
+        return Snapshot(addresses=parser(_decode(raw)))
+
+
+def _decode(raw: bytes) -> str:
+    """Exports come as UTF-8 (with or without BOM) or, from Windows PowerShell 5, as UTF-16."""
+    if raw.startswith((b"\xff\xfe", b"\xfe\xff")):
+        return raw.decode("utf-16")
+    return raw.decode("utf-8-sig", errors="replace")
+
+
+class DhcpPush(Source):
+    """A lease export that the DHCP server uploads itself.
+
+    Settings: ``format`` (see PARSERS), ``token`` (or ``token_file``; at least 24
+    characters, sent as ``Authorization: Bearer <token>``), optional ``max_age``
+    in seconds (default 3600): an upload older than that counts as missing.
+    The last upload is kept in memory; after a restart the source waits for
+    the next one.
+    """
+
+    type = "dhcp-push"
+    default_interval = 60
+
+    def __init__(self, conf: dict[str, Any]) -> None:
+        super().__init__(conf)
+        self.received: tuple[float, list[AddressEntry]] | None = None
+
+    def check_token(self, header: str | None) -> bool:
+        token = str(self.conf.get("token") or "")
+        return len(token) >= 24 and hmac.compare_digest((header or "").encode(), f"Bearer {token}".encode())
+
+    def accept(self, raw: bytes) -> int:
+        """Parse and keep an upload. Raises SourceError for an unusable one, keeping the previous."""
+        parser = PARSERS.get(self.conf.get("format", ""))
+        if parser is None:
+            raise SourceError(f"source {self.name}: format must be one of {', '.join(PARSERS)}")
+        try:
+            entries = parser(_decode(raw))
+        except (ValueError, KeyError, csv.Error) as exc:
+            raise SourceError(f"source {self.name}: the upload could not be read: {exc}") from exc
+        self.received = (time.time(), entries)
+        return len(entries)
+
+    async def collect(self) -> Snapshot:
+        self.require("format", "token")
+        if len(str(self.conf["token"])) < 24:
+            raise SourceError(f"source {self.name}: the token must be at least 24 characters")
+        if self.received is None:
+            raise SourceError(f"source {self.name}: no upload received yet")
+        age = time.time() - self.received[0]
+        if age > int(self.conf.get("max_age", 3600)):
+            raise SourceError(f"source {self.name}: the last upload is {int(age // 60)} minutes old")
+        return Snapshot(addresses=list(self.received[1]), taken_at=self.received[0])
 
 
 _WINRM_SCRIPT = (
@@ -218,7 +274,7 @@ class DhcpKea(Source):
     async def collect(self) -> Snapshot:
         self.require("url")
         auth = (self.conf["user"], self.conf["password"]) if self.conf.get("user") else None
-        async with httpx.AsyncClient(timeout=15, verify=self.conf.get("verify_tls", True), auth=auth) as cl:
+        async with httpx.AsyncClient(timeout=15, verify=tls.verify(self.conf), auth=auth) as cl:
             try:
                 r = await cl.post(self.conf["url"], json={"command": "lease4-get-all", "service": ["dhcp4"]})
                 r.raise_for_status()
@@ -247,7 +303,7 @@ class DhcpOpnsense(Source):
         self.require("url", "key", "secret")
         path = "api/kea/leases4/search" if self.conf.get("backend", "isc") == "kea" else "api/dhcpv4/leases/searchLease"
         url = self.conf["url"].rstrip("/") + "/" + path
-        async with httpx.AsyncClient(timeout=15, verify=self.conf.get("verify_tls", True),
+        async with httpx.AsyncClient(timeout=15, verify=tls.verify(self.conf),
                                      auth=(self.conf["key"], self.conf["secret"])) as cl:
             try:
                 r = await cl.get(url)

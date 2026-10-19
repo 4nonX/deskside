@@ -96,7 +96,7 @@ export function UsersView({ me }: { me: Me }) {
         <tbody>
           {users.map((u) => (
             <tr key={u.id}>
-              <td>{u.username}</td>
+              <td>{u.username}{u.source === "sso" && <span className="sub"> · {t("users.sso")}</span>}</td>
               <td>
                 <select value={u.role} disabled={u.id === undefined} onChange={(e) => run(() => api.updateUser(u.id, { role: e.target.value as Role }))()}>
                   {roles.map((r) => <option key={r} value={r}>{t(`role.${r}` as const)}</option>)}
@@ -104,10 +104,10 @@ export function UsersView({ me }: { me: Me }) {
               </td>
               <td>{u.last_login ? datetime(u.last_login) : t("users.never")}</td>
               <td className="row-actions">
-                <button className="link" onClick={() => {
+                {u.source !== "sso" && <button className="link" onClick={() => {
                   const p = prompt(t("users.password"));
                   if (p) run(() => api.updateUser(u.id, { password: p }))();
-                }}>{t("users.setpassword")}</button>
+                }}>{t("users.setpassword")}</button>}
                 {u.username !== me.username && <button className="link danger" onClick={run(() => api.deleteUser(u.id))}>{t("users.delete")}</button>}
               </td>
             </tr>

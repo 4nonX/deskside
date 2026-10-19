@@ -19,6 +19,7 @@ from urllib.parse import quote
 
 import httpx
 
+from .. import tls
 from ..netaddr import normalize_mac, parse_ip
 from .base import AddressEntry, Neighbor, PortEntry, Snapshot, Source, SourceError
 
@@ -43,7 +44,7 @@ class Netdisco(Source):
         base = self.conf["url"].rstrip("/") + "/api/v1/"
         headers = {"Authorization": self.conf["token"], "Accept": "application/json"}
         async with httpx.AsyncClient(base_url=base, headers=headers, timeout=30,
-                                     verify=self.conf.get("verify_tls", True)) as cl:
+                                     verify=tls.verify(self.conf)) as cl:
 
             async def get(path: str, **params: Any) -> Any:
                 try:

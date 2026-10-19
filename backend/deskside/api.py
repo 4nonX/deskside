@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import time
 from collections import defaultdict, deque
 from typing import Any
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
-from fastapi.responses import StreamingResponse
+from fastapi.responses import RedirectResponse, StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session, selectinload
@@ -20,9 +22,11 @@ from . import naming
 from .db import (AuditLog, Department, Device, DevicePerson, EventLog, History, Interface, Note, Person, Proposal, Room,
                  Sighting, User, now)
 from .netaddr import ip_sort_key, mac_search_key, normalize_mac
+from .oidc import STATE_COOKIE, STATE_MAX_AGE, OidcError
 from .search import filter_rows, search_blob
 
 router = APIRouter(prefix="/api")
+log = logging.getLogger("deskside")
 
 
 def _db(request: Request):
@@ -77,8 +81,72 @@ class LoginBody(BaseModel):
 _attempts: dict[str, deque[float]] = defaultdict(deque)
 
 
+@router.get("/auth/config")
+def auth_config(request: Request) -> dict[str, Any]:
+    """What the sign-in page offers. Public: it reveals nothing but the button label."""
+    oidc = getattr(request.app.state, "oidc", None)
+    return {"local_login": request.app.state.settings.local_login, "sso": oidc.label if oidc else None}
+
+
+@router.get("/auth/start")
+def auth_start(request: Request, next: str = "/") -> RedirectResponse:
+    oidc = getattr(request.app.state, "oidc", None)
+    if oidc is None:
+        raise HTTPException(404, "Single sign-on is not configured.")
+    try:
+        url, state = oidc.start(next)
+    except OidcError as exc:
+        return RedirectResponse("/?login_error=" + quote(str(exc)), status_code=303)
+    resp = RedirectResponse(url, status_code=303)
+    # Lax, not strict: the identity provider sends the browser back with a cross-site navigation.
+    resp.set_cookie(STATE_COOKIE, state, max_age=STATE_MAX_AGE, httponly=True, samesite="lax",
+                    secure=request.url.scheme == "https", path="/api/auth")
+    return resp
+
+
+@router.get("/auth/callback")
+def auth_callback(request: Request, code: str = "", state: str = "", error: str = "",
+                  error_description: str = "") -> RedirectResponse:
+    oidc = getattr(request.app.state, "oidc", None)
+    if oidc is None:
+        raise HTTPException(404, "Single sign-on is not configured.")
+
+    def fail(msg: str) -> RedirectResponse:
+        resp = RedirectResponse("/?login_error=" + quote(msg[:300]), status_code=303)
+        resp.delete_cookie(STATE_COOKIE, path="/api/auth")
+        return resp
+
+    if error:
+        return fail(error_description or error)
+    try:
+        info = oidc.finish(code, state, request.cookies.get(STATE_COOKIE, ""))
+    except OidcError as exc:
+        return fail(str(exc))
+    if info["role"] is None:
+        log.info("sign-in refused for %s: none of the configured groups", info["username"])
+        return fail("Your account is not in a group that may use deskside.")
+    with _db(request).session() as s:
+        user = s.scalar(select(User).where(User.username == info["username"]))
+        if user is None:
+            user = User(username=info["username"], password_hash="!sso", role=info["role"], source="sso")
+            s.add(user)
+            s.flush()
+        elif user.role != info["role"]:
+            s.add(AuditLog(username=user.username, action="user.role_from_groups", target=user.username,
+                           detail={"from": user.role, "to": info["role"]}))
+        user.role, user.source, user.last_login = info["role"], "sso", now()
+        token = request.app.state.sessions.issue(user)
+    resp = RedirectResponse(info["next"], status_code=303)
+    resp.delete_cookie(STATE_COOKIE, path="/api/auth")
+    resp.set_cookie(COOKIE, token, max_age=MAX_AGE, httponly=True, samesite="strict",
+                    secure=request.url.scheme == "https", path="/")
+    return resp
+
+
 @router.post("/login")
 def login(body: LoginBody, request: Request, response: Response) -> dict[str, Any]:
+    if not request.app.state.settings.local_login:
+        raise HTTPException(403, "Sign in with single sign-on.")
     client = request.client.host if request.client else "?"
     window = _attempts[client]
     t = time.time()
@@ -88,7 +156,7 @@ def login(body: LoginBody, request: Request, response: Response) -> dict[str, An
         raise HTTPException(429, "Too many failed sign-ins. Wait five minutes and try again.")
     with _db(request).session() as s:
         user = s.scalar(select(User).where(User.username == body.username))
-        if user is None or not verify_password(body.password, user.password_hash):
+        if user is None or user.source == "sso" or not verify_password(body.password, user.password_hash):
             window.append(t)
             raise HTTPException(401, "Wrong user name or password.")
         user.last_login = now()
@@ -164,7 +232,12 @@ def build_rows(s: Session, ports: Any, contacts: bool) -> list[dict[str, Any]]:
                "room": _room_label(d.room) or None, "department": d.department.name if d.department else None,
                "people": [dp.person.display_name for dp in links]}
         row["mac"] = row.get("mac") or (macs[0] if macs else None)
-        extra = [n.text for n in d.notes] + [x.ip for x in sgs if x.ip]
+        if not row.get("ip") and hasattr(ports, "documented_ip"):
+            # Fixed addresses that no DHCP or ARP source reports: what NetBox documents, marked as such.
+            doc = ports.documented_ip(d.name, macs, d.external_id)
+            if doc:
+                row["ip"], row["ip_documented"] = doc, True
+        extra = [n.text for n in d.notes] + [x.ip for x in sgs if x.ip] + ([row["ip"]] if row.get("ip_documented") else [])
         extra += [x.hostname for x in sgs if x.hostname] + [i.label for i in d.interfaces if i.label]
         if d.room:
             extra += [d.room.number, d.room.name, d.room.building, d.room.floor]
@@ -597,7 +670,8 @@ class UserPatch(BaseModel):
 @router.get("/users")
 def list_users(request: Request, user: User = Depends(require("admin"))) -> list[dict[str, Any]]:
     with _db(request).session() as s:
-        return [{"id": u.id, "username": u.username, "role": u.role, "last_login": u.last_login}
+        return [{"id": u.id, "username": u.username, "role": u.role, "last_login": u.last_login,
+                 "source": u.source or "local"}
                 for u in s.scalars(select(User).order_by(User.username))]
 
 
@@ -669,8 +743,28 @@ async def stream(request: Request, user: User = Depends(current_user)) -> Stream
                              headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
 
+@router.post("/ingest/{name}")
+async def ingest(name: str, request: Request) -> dict[str, Any]:
+    """Uploads for push sources (dhcp-push). Authenticated by the source's token, not by a session."""
+    from .sources.base import SourceError
+    from .sources.dhcp import DhcpPush
+    eng = _engine(request)
+    src = next((s for s in eng.sources if s.name == name and isinstance(s, DhcpPush)), None)
+    if src is None or not src.check_token(request.headers.get("authorization")):
+        raise HTTPException(401, "Unknown source or wrong token.")
+    raw = await request.body()
+    if len(raw) > 20 * 1024 * 1024:
+        raise HTTPException(413, "Upload too large.")
+    try:
+        count = src.accept(raw)
+    except SourceError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    await eng.run_source(src)
+    return {"ok": True, "addresses": count}
+
+
 @router.get("/health")
 def health(request: Request) -> dict[str, Any]:
     eng = _engine(request)
-    return {"status": "ok", "version": __version__, "sources": len(eng.sources),
+    return {"ok": True, "status": "ok", "version": __version__, "sources": len(eng.sources),
             "failing": [st.name for st in eng.state.values() if st.error]}

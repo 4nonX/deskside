@@ -220,6 +220,9 @@ class Engine:
             return set()
         return {i.name.lower() for i in self.netbox.ifaces.values() if i.mgmt}
 
+    def documented_ip(self, name: str, macs: list[str], external_id: str | None = None) -> str | None:
+        return self.netbox.documented_ip(name, macs, external_id) if self.netbox else None
+
     def port_place(self, switch: str | None, port: str | None) -> dict[str, Any] | None:
         """Where a switch port leads, if NetBox documents it. See Netbox.port_place."""
         return self.netbox.port_place(switch, port) if self.netbox else None

@@ -16,12 +16,13 @@ The network part of each card keeps itself current. deskside reads switch MAC ta
 
 ## Status
 
-Early development, not yet released. Working so far: switch, ARP and DHCP collection (or Netdisco), the device list with search, device cards with live network data, names, pinned notes, rooms, departments, users with their contact details, directory sync from LDAP or Active Directory, naming conventions, remote access buttons (Remote Desktop, RustDesk, TeamViewer, VNC, SSH, web and your own link templates), the NetBox connection with proposals that an admin confirms, peripherals and a network map, events with a port and address history per device, notifications to chat, webhooks and e-mail, and local accounts. Sign-in via OpenID Connect is the main thing still missing before a first release, see [docs/design.md](docs/design.md).
+First release (0.1.0). Images: `ghcr.io/4nonx/deskside`. What it does: switch, ARP and DHCP collection (or Netdisco), the device list with search, device cards with live network data, names, pinned notes, rooms, departments, users with their contact details, directory sync from LDAP or Active Directory, naming conventions, remote access buttons (Remote Desktop, RustDesk, TeamViewer, VNC, SSH, web and your own link templates), the NetBox connection with proposals that an admin confirms, peripherals and a network map, events with a port and address history per device, notifications to chat, webhooks and e-mail, and sign-in with OpenID Connect or local accounts. See [docs/design.md](docs/design.md) for the decisions behind it.
 
 ## Documentation
 
 - [Using deskside](docs/usage.md): search, device cards, the directory
 - [Installation](docs/installation.md)
+- [Signing in](docs/authentication.md): single sign-on with OpenID Connect, local accounts, internal CAs
 - [Configuration](docs/configuration.md), including how sources are combined and which events exist
 - [Data sources](docs/sources.md), with the least access each one needs
 - [Remote access](docs/remote-access.md): built-in tools, how each link was verified, adding your own

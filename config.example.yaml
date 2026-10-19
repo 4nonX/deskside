@@ -30,6 +30,15 @@ naming:
     kind: workstation
     # ip: "10.0.10.{100+n}"    # expected address per number, if you use a scheme
 
+# Sign-in (optional). Single sign-on with OpenID Connect; see docs/authentication.md.
+# auth:
+#   local_login: false
+#   oidc:
+#     issuer: https://sso.example.org/application/o/deskside/
+#     client_id_file: /run/secrets/oidc_client_id
+#     client_secret_file: /run/secrets/oidc_client_secret
+#     roles: {admin: [it-admins], viewer: [staff]}
+
 # Notifications (optional). See docs/notifications.md.
 # notifications:
 #   - type: webhook                  # chat: Slack, Mattermost, Rocket.Chat, Google Chat

@@ -21,6 +21,8 @@ from typing import Any
 
 import httpx
 
+from . import tls
+
 log = logging.getLogger("deskside.notify")
 
 KINDS = ("new", "online", "offline", "moved", "ip_changed", "scheme", "busy_port", "discovery")
@@ -158,7 +160,7 @@ class Notifier:
             payload: dict[str, Any] = {"text": body if len(events) > 1 else f"{subject}\n{self.public_url or ''}".strip()}
         else:
             payload = {"source": "deskside", "summary": subject, "events": events}
-        async with httpx.AsyncClient(timeout=15, transport=self.transport, verify=ch.conf.get("verify_tls", True),
+        async with httpx.AsyncClient(timeout=15, transport=self.transport, verify=tls.verify(ch.conf),
                                      headers=ch.conf.get("headers") or {}) as cl:
             r = await cl.post(ch.conf["url"], json=payload)
         if r.is_error:

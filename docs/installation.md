@@ -10,14 +10,16 @@ deskside runs as one container. It needs a configuration file, a few secret file
 
 ## Steps
 
-1. Get the code and create a working directory next to it:
+1. Create a working directory with the example configuration and compose file:
 
    ```sh
-   git clone https://github.com/4nonX/deskside.git
-   cd deskside
-   cp config.example.yaml config.yaml
+   mkdir deskside && cd deskside
+   curl -fsSLO https://raw.githubusercontent.com/4nonX/deskside/main/compose.yaml
+   curl -fsSL https://raw.githubusercontent.com/4nonX/deskside/main/config.example.yaml -o config.yaml
    mkdir secrets
    ```
+
+   The compose file uses the published image `ghcr.io/4nonx/deskside`. Pin a version (`ghcr.io/4nonx/deskside:0.1.0`) rather than `latest` in production. To build from source instead, clone the repository and replace `image:` with `build: .`.
 
 2. Create the two secrets deskside needs for itself. The session key signs sign-in cookies; the admin password is used once, to create the first account.
 
@@ -32,17 +34,19 @@ deskside runs as one container. It needs a configuration file, a few secret file
 4. Start it:
 
    ```sh
-   docker compose up -d --build
+   docker compose up -d
    docker compose logs -f deskside
    ```
 
-   On first start the log says `created the initial 'admin' account`. Sign in at `http://<host>:8080` as `admin` with the password from `secrets/admin_password`, then create personal accounts under **Users** and stop using the shared one.
+   On first start the log says `created the initial 'admin' account`. Sign in at `http://<host>:8080` as `admin` with the password from `secrets/admin_password`, then create personal accounts under **Users** and stop using the shared one. With an identity provider, set up single sign-on instead, see [authentication.md](authentication.md).
 
 5. Check **Sources**. Every source shows when it last succeeded, how long it took and how many entries it delivered. A source that cannot connect says why.
 
 ## Behind a reverse proxy
 
-deskside listens on plain HTTP and expects TLS to be terminated in front of it. Pass the usual `X-Forwarded-*` headers and set `DESKSIDE_TRUSTED_PROXIES` to the proxy's address so deskside sees the real client address and sets secure cookies. The live updates use server-sent events on `/api/stream`; disable response buffering for that path if your proxy buffers by default.
+deskside listens on plain HTTP and expects TLS to be terminated in front of it. Pass the usual `X-Forwarded-*` headers and set `DESKSIDE_TRUSTED_PROXIES` to the proxy's address (or the proxy network's addresses) so deskside sees the real client address and sets secure cookies. The live updates use server-sent events on `/api/stream`; disable response buffering for that path if your proxy buffers by default.
+
+`GET /api/health` answers without sign-in with `{"ok": true, "version": "..."}` and the number of sources, for monitoring and container health checks.
 
 ## Environment variables
 
@@ -55,6 +59,7 @@ deskside listens on plain HTTP and expects TLS to be terminated in front of it. 
 | `DESKSIDE_LOG_LEVEL` | `INFO` | `DEBUG` shows every source run |
 | `DESKSIDE_SECRET_KEY` | | Alternative to `server.secret_key` |
 | `DESKSIDE_ADMIN_PASSWORD` | | Alternative to `server.admin_password` |
+| `DESKSIDE_CA_FILE` | | Extra CA certificate (PEM) for all outgoing HTTPS connections, see [authentication.md](authentication.md) |
 
 ## Vendor names
 
@@ -78,7 +83,7 @@ DESKSIDE_CONFIG=../config.yaml deskside
 
 ## Updating
 
-Pull the new version, rebuild, restart. The database schema is created on start; until the first stable release, schema changes may require starting with a fresh database. The changelog says so when that is the case.
+Change the image version in `compose.yaml`, then `docker compose pull && docker compose up -d --force-recreate`. New tables and columns are added to an existing database on start. The changelog says when a version needs anything more.
 
 ## Backups
 

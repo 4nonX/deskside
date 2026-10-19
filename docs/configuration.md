@@ -17,7 +17,11 @@ Two mechanisms work anywhere in the file:
 |---|---|
 | `secret_key` | At least 32 random characters. Signs session cookies. Changing it signs everyone out |
 | `admin_password` | Used only when the database has no users yet, to create the account `admin` |
-| `public_url` | The address users open deskside at, for example `https://deskside.example.org`. Used for links in notifications |
+| `public_url` | The address users open deskside at, for example `https://deskside.example.org`. Used for links in notifications and for the single sign-on callback |
+
+### auth
+
+How people sign in: `local_login` (default `true`) and `oidc` for single sign-on. See [authentication.md](authentication.md).
 
 ### database
 
@@ -175,7 +179,7 @@ Where to send events: chat webhooks, other HTTP endpoints, e-mail. See [notifica
 
 ## Accounts and roles
 
-Accounts are managed under **Users** (admins only). Passwords need at least 12 characters and are stored as scrypt hashes.
+Accounts are managed under **Users** (admins only), or come from single sign-on, where the groups decide the role ([authentication.md](authentication.md)). Passwords need at least 12 characters and are stored as scrypt hashes.
 
 | Role | Can |
 |---|---|
@@ -183,4 +187,4 @@ Accounts are managed under **Users** (admins only). Passwords need at least 12 c
 | Editor | Additionally create and rename devices, add and remove MAC addresses, attach and detach devices, write, pin and delete notes, choose icons, and maintain rooms, departments, people and who uses which device |
 | Admin | Additionally delete devices and manage accounts |
 
-Every change made through the interface or the API is recorded with user and time. Sign-in via OpenID Connect is planned.
+Every change made through the interface or the API is recorded with user and time.

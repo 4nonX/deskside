@@ -481,6 +481,13 @@ class Graph:
                       "icon": d.icon, "online": False, "ip": None}
                      for d in sorted(self.devices.values(), key=lambda d: d.name.lower())
                      if d.id not in shown and d.parent_id not in self.devices]
+        if self.nb is not None and hasattr(self.nb, "documented_ip"):
+            for n in list(self.nodes.values()) + unplaced:
+                d = self.devices.get(n.get("device_id")) if n.get("device_id") is not None else None
+                if d is not None and not n.get("ip"):
+                    doc = self.nb.documented_ip(d.name, d.macs, d.external_id)
+                    if doc:
+                        n["ip"], n["ip_documented"] = doc, True
         return {"nodes": list(self.nodes.values()), "edges": self.edges, "unplaced": unplaced, "racks": self.racks}
 
     def _subnets(self, wan: Dev | None) -> None:

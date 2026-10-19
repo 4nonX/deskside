@@ -1,6 +1,6 @@
 # deskside: design draft
 
-Status: agreed design. Milestones 1 to 5 are implemented; OpenID Connect sign-in is still open.
+Status: agreed design. Milestones 1 to 5 and OpenID Connect sign-in are implemented (release 0.1.0).
 
 ## What problem this solves
 

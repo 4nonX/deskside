@@ -155,3 +155,22 @@ def test_lease_only_addresses_have_their_own_filter(client):
     assert [r["ip"] for r in res["rows"]] == ["10.0.10.50"] and res["lease_only"] == 1
     assert [r["ip"] for r in client.get("/api/devices", params={"show": "leases"}).json()["rows"]] == ["10.0.10.201"]
     assert [r["ip"] for r in client.get("/api/devices", params={"q": "10.0.10.201"}).json()["rows"]] == ["10.0.10.201"]
+
+
+def test_dhcp_push_upload(tmp_path):
+    token = "t" * 32
+    s = Settings(database_url=f"sqlite:///{tmp_path}/p.db", secret_key="k" * 40, admin_password="initial-password",
+                 sources=[{"type": "dhcp-push", "name": "dhcp", "format": "windows-csv", "token": token}])
+    s.raw = {"dns": {"reverse": False}}
+    csv_text = ('"IPAddress","ClientId","HostName","AddressState","LeaseExpiryTime"\r\n'
+                '"10.0.10.150","00-00-5e-00-53-50","ws50.example.org","Active","27.10.2026 08:41:39"\r\n')
+    with TestClient(create_app(s)) as c:
+        url = "/api/ingest/dhcp"
+        assert c.post(url, content=csv_text, headers={"Authorization": "Bearer wrong"}).status_code == 401
+        assert c.post("/api/ingest/other", content=csv_text, headers={"Authorization": f"Bearer {token}"}).status_code == 401
+        r = c.post(url, content=csv_text.encode("utf-16"), headers={"Authorization": f"Bearer {token}",
+                                                                     "Content-Type": "text/csv"})
+        assert r.status_code == 200 and r.json() == {"ok": True, "addresses": 1}
+        assert c.post("/api/login", json={"username": "admin", "password": "initial-password"}).status_code == 200
+        rows = c.get("/api/devices", params={"show": "leases"}).json()["rows"]
+        assert [(x["ip"], x["hostname"]) for x in rows] == [("10.0.10.150", "ws50.example.org")]

@@ -2,8 +2,8 @@
 
 Passwords are hashed with scrypt from the standard library. Sessions are
 signed cookies (itsdangerous) holding the user id, valid for 12 hours.
-OpenID Connect sign-in is planned for a later milestone and will map to the
-same roles.
+Sign-in through OpenID Connect (oidc.py) uses the same sessions and roles;
+local passwords can be switched off with ``auth.local_login: false``.
 
 Roles, from least to most: ``viewer`` (read), ``editor`` (devices, notes),
 ``admin`` (users and everything else).
@@ -58,8 +58,10 @@ class Sessions:
             return None
 
 
-def ensure_admin(db: Database, password: str | None) -> str | None:
+def ensure_admin(db: Database, password: str | None, local_login: bool = True) -> str | None:
     """Create the first admin account if there is no user yet. Returns a message for the log."""
+    if not local_login:
+        return None                  # single sign-on only: accounts appear on first sign-in
     with db.session() as s:
         if s.scalar(select(User.id).limit(1)) is not None:
             return None

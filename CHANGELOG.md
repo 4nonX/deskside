@@ -4,7 +4,17 @@ All notable changes to deskside are listed here. The format follows [Keep a Chan
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-10-19
+
+First release.
+
 ### Added
+
+- Sign-in with OpenID Connect (Authorization Code with PKCE, ID token checked against the provider's keys, groups mapped to roles on every sign-in), optionally as the only way in (`auth.local_login: false`). See docs/authentication.md.
+- `dhcp-push` source: the DHCP server uploads its lease export to `POST /api/ingest/<name>` with a token, so deskside needs no share or account on it.
+- Fixed addresses that no live source reports are shown from NetBox, marked "as documented in NetBox".
+- `DESKSIDE_CA_FILE` and `ca_file`: one setting for an internal CA on every outgoing HTTPS connection.
+- Published container image `ghcr.io/4nonx/deskside` for amd64 and arm64, built and start-checked by CI.
 
 - Design document describing scope, data sources, matching rules, NetBox handling, remote access and milestones.
 - Data sources: SNMP switch MAC tables (SNMP v1, v2c, v3; BRIDGE-, Q-BRIDGE-, IF- and LLDP-MIB), router ARP tables over SNMP, local ARP sweep, DHCP leases from Windows (WinRM or CSV export), dnsmasq, ISC dhcpd, Kea (file or API) and OPNsense, and Netdisco.

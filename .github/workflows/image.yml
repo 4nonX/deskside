@@ -1,0 +1,164 @@
+# Runs the tests, builds the deskside image, checks that it starts, and
+# publishes it to the GitHub container registry for amd64 and arm64:
+#
+#   pull request     tests + build + start check, nothing published
+#   push to main     tests + build + start check, published as :main and :sha-<commit>
+#   tag v0.1.0       tests + build + start check, published as :0.1.0, :0.1 and
+#                    :latest (the tag must match the version in the package), then
+#                    the GitHub release with its notes taken from CHANGELOG.md
+#   manual run       any branch or tag; published only when asked to
+#
+# The start check runs the freshly built image with a minimal configuration and
+# requires /api/health to answer with the expected version. Only an image that
+# passes is pushed.
+name: Container image
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+    paths-ignore:
+      - "**/*.md"
+      - "docs/**"
+  pull_request:
+    paths-ignore:
+      - "**/*.md"
+      - "docs/**"
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: Push the image to the registry
+        type: boolean
+        default: false
+
+permissions:
+  contents: write     # the GitHub release of a version tag
+  packages: write
+
+concurrency:
+  group: image-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+
+env:
+  IMAGE: ghcr.io/${{ github.repository_owner }}/deskside
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+      - name: Backend tests
+        working-directory: backend
+        run: |
+          pip install -e '.[test]'
+          pytest -q
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+      - name: Frontend type check and build
+        working-directory: frontend
+        run: |
+          npm ci --no-audit --no-fund
+          npx tsc -b
+          npm run build
+
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+      - id: v
+        name: Version from the package, checked against the tag
+        run: |
+          version=$(sed -n 's/^__version__ = "\(.*\)"/\1/p' backend/deskside/__init__.py)
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          if [[ "$GITHUB_REF" == refs/tags/v* && "${GITHUB_REF#refs/tags/v}" != "$version" ]]; then
+            echo "::error::Tag ${GITHUB_REF#refs/tags/} does not match version $version in backend/deskside/__init__.py"
+            exit 1
+          fi
+
+  image:
+    needs: [test, version]
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v7
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build for the start check (amd64, local)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          tags: deskside:check
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Start check
+        run: |
+          mkdir -p check
+          printf 'server:\n  secret_key: %s\n  admin_password: check-only-password\nsources: []\n' "$(openssl rand -hex 32)" > check/config.yaml
+          docker run -d --name deskside-check -p 18080:8080 -v "$PWD/check/config.yaml:/config/config.yaml:ro" deskside:check
+          for i in $(seq 1 30); do
+            if out=$(curl -fsS http://127.0.0.1:18080/api/health); then
+              echo "$out"
+              echo "$out" | grep -q "\"version\":\"${{ needs.version.outputs.version }}\"" && exit 0
+              echo "::error::health check answered with the wrong version"; exit 1
+            fi
+            sleep 2
+          done
+          docker logs deskside-check
+          echo "::error::deskside did not answer its health check"; exit 1
+
+      - name: Image tags
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
+            type=ref,event=branch
+            type=sha,prefix=sha-,enable=${{ github.ref == 'refs/heads/main' }}
+
+      - name: Log in to the registry
+        if: github.event_name == 'push' || inputs.publish
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and publish (amd64, arm64)
+        if: github.event_name == 'push' || inputs.publish
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [image, version]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Release notes from CHANGELOG.md
+        run: |
+          v="${{ needs.version.outputs.version }}"
+          awk -v v="$v" '$0 ~ "^## \\[" v "\\]" {on=1; next} on && /^## \[/ {exit} on {print}' CHANGELOG.md > notes.md
+          if [ ! -s notes.md ]; then echo "::error::CHANGELOG.md has no section for $v"; exit 1; fi
+      - name: GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "${GITHUB_REF#refs/tags/}" --title "deskside ${{ needs.version.outputs.version }}" --notes-file notes.md

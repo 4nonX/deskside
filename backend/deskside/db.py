@@ -237,6 +237,7 @@ class User(Base):
     role: Mapped[str] = mapped_column(String(20), default="viewer")
     created_at: Mapped[int] = mapped_column(Integer, default=now)
     last_login: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    source: Mapped[str | None] = mapped_column(String(20), nullable=True, default="local")   # local or sso
 
 
 class AuditLog(Base):

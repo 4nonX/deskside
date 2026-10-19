@@ -1,8 +1,7 @@
 # Minimal setup. See docs/installation.md for what each part does.
 services:
   deskside:
-    build: .
-    # A published image will be available from the first release on.
+    image: ghcr.io/4nonx/deskside:0.1.0    # or build from source with: build: .
     restart: unless-stopped
     # Host networking is only needed for the local-arp source, which has to sit in the
     # networks it sweeps. Without local-arp, remove this line and publish the port instead:

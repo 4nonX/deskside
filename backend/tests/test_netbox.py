@@ -256,3 +256,11 @@ def test_port_place_follows_the_cabling(setup):
                                                             "room": "Lab", "switch": False}
     assert nb.port_place("core-sw", "GigabitEthernet12") == {"documented": False}     # known switch, no cable
     assert nb.port_place("other-sw", "Gi1") is None                                   # NetBox does not know it
+
+
+def test_documented_ip_for_devices_without_a_live_address(setup):
+    db, nb, fake = setup
+    fake.devices[1]["primary_ip4"] = {"address": "10.0.10.109/24"}
+    assert asyncio.run(nb.sync()), nb.state.error
+    assert nb.documented_ip("WS09", [PC_MAC]) == "10.0.10.109"
+    assert nb.documented_ip("WS99", []) is None

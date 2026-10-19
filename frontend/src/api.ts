@@ -7,6 +7,7 @@ export interface Me { username: string; role: Role; version: string }
 export interface NetInfo {
   mac?: string | null;
   ip?: string | null;
+  ip_documented?: boolean;     // no live source has an address; this one is documented in NetBox
   hostname?: string | null;
   hostname_source?: string | null;
   vendor?: string | null;
@@ -121,7 +122,7 @@ export interface SourceState {
   duration: number | null; error: string | null; counts: Record<string, number>;
 }
 export interface SourcesInfo { last_merge: number | null; sources: SourceState[]; suspect_ports: { switch: string; port: string; macs: number }[] }
-export interface UserItem { id: number; username: string; role: Role; last_login: number | null }
+export interface UserItem { id: number; username: string; role: Role; last_login: number | null; source?: "local" | "sso" }
 
 export class ApiError extends Error {
   constructor(public status: number, message: string) { super(message); }
@@ -147,6 +148,7 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
 
 export const api = {
   me: () => request<Me>("GET", "/me"),
+  authConfig: () => request<{ local_login: boolean; sso: string | null }>("GET", "/auth/config"),
   login: (username: string, password: string) => request<Me>("POST", "/login", { username, password }),
   logout: () => request<{ ok: boolean }>("POST", "/logout", {}),
   devices: (q: string, show: string) =>

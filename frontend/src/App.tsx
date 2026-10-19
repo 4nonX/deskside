@@ -30,7 +30,10 @@ export function App() {
 function Login({ onDone }: { onDone: (m: Me) => void }) {
   const [user, setUser] = useState("");
   const [pw, setPw] = useState("");
-  const [err, setErr] = useState("");
+  const [err, setErr] = useState(() => new URLSearchParams(location.search).get("login_error") ?? "");
+  const [cfg, setCfg] = useState<{ local_login: boolean; sso: string | null } | null>(null);
+  useEffect(() => { api.authConfig().then(setCfg).catch(() => setCfg({ local_login: true, sso: null })); }, []);
+  const sso = () => { location.href = `/api/auth/start?next=${encodeURIComponent(location.pathname + location.search.replace(/[?&]login_error=[^&]*/, ""))}`; };
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErr("");
@@ -42,10 +45,14 @@ function Login({ onDone }: { onDone: (m: Me) => void }) {
       <form onSubmit={submit} className="login-box">
         <div className="brand">deskside</div>
         <h1>{t("login.title")}</h1>
-        <label>{t("login.user")}<input autoFocus autoComplete="username" value={user} onChange={(e) => setUser(e.target.value)} /></label>
-        <label>{t("login.password")}<input type="password" autoComplete="current-password" value={pw} onChange={(e) => setPw(e.target.value)} /></label>
+        {cfg?.sso && <button type="button" className="primary" onClick={sso}>{t("login.sso", { name: cfg.sso })}</button>}
+        {cfg?.local_login && <>
+          {cfg.sso && <div className="sub login-or">{t("login.or")}</div>}
+          <label>{t("login.user")}<input autoFocus={!cfg.sso} autoComplete="username" value={user} onChange={(e) => setUser(e.target.value)} /></label>
+          <label>{t("login.password")}<input type="password" autoComplete="current-password" value={pw} onChange={(e) => setPw(e.target.value)} /></label>
+          <button className={cfg.sso ? "" : "primary"} type="submit" disabled={!user || !pw}>{t("login.submit")}</button>
+        </>}
         {err && <div className="error">{err}</div>}
-        <button className="primary" type="submit" disabled={!user || !pw}>{t("login.submit")}</button>
       </form>
     </div>
   );
@@ -232,7 +239,7 @@ function DeviceTable({ rows, selected, onSelect }: { rows: Row[]; selected: Sele
             </td>
             <td>{r.people[0]}{r.people.length > 1 && <span className="sub"> +{r.people.length - 1}</span>}</td>
             <td>{r.room}{r.department && <div className="sub">{r.department}</div>}</td>
-            <td><Copyable value={r.ip} mono /></td>
+            <td><Copyable value={r.ip} mono />{r.ip_documented && <div className="sub">{t("ip.documented")}</div>}</td>
             <td><Copyable value={r.mac} mono /></td>
             <td>
               {r.parent ? <span className="sub">{t("card.attachedto")} {r.parent}</span> : r.port && (() => {

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "deskside"
-version = "0.1.0.dev0"
+version = "0.1.0"
 description = "Self-hosted device overview for support work"
 license = "Apache-2.0"
 requires-python = ">=3.12"
@@ -18,6 +18,8 @@ dependencies = [
     "pywinrm>=0.5",
     "itsdangerous>=2.2",
     "ldap3>=2.9",
+    "pyjwt[crypto]>=2.10",
+    "certifi>=2024.2",
 ]
 
 [project.optional-dependencies]

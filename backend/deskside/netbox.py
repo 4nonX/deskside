@@ -35,6 +35,7 @@ from typing import Any
 import httpx
 from sqlalchemy import select
 
+from . import tls
 from .db import Database, Device, EventLog, Proposal, Room, Sighting, now
 from .search import port_variants
 
@@ -126,7 +127,7 @@ class Netbox:
 
     # --- HTTP ------------------------------------------------------------------------------
     def _client(self) -> httpx.AsyncClient:
-        return httpx.AsyncClient(base_url=self.base, timeout=30, verify=self.conf.get("verify_tls", True), transport=self.transport,
+        return httpx.AsyncClient(base_url=self.base, timeout=30, verify=tls.verify(self.conf), transport=self.transport,
                                  headers={"Authorization": f"Token {self.conf['token']}", "Accept": "application/json"})
 
     async def _all(self, cl: httpx.AsyncClient, path: str, **params: Any) -> list[dict[str, Any]]:
@@ -259,6 +260,12 @@ class Netbox:
         if not (panel or name):
             return {"documented": False}
         return {"documented": True, "panel": panel, "endpoint": name, "room": room, "switch": via_switch}
+
+    def documented_ip(self, name: str, macs: list[str], external_id: str | None = None) -> str | None:
+        """The primary IPv4 address NetBox has for a device, for devices no source gives an address."""
+        nb_id = self.device_for(name, macs, external_id)
+        addr = (((self.devices.get(nb_id) or {}).get("primary_ip4") or {}).get("address") if nb_id else None)
+        return addr.split("/")[0] if addr else None
 
     def device_for(self, name: str, macs: list[str], external_id: str | None = None) -> int | None:
         if external_id and external_id.startswith("netbox:device:"):

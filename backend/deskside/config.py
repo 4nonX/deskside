@@ -72,6 +72,9 @@ class Settings:
     contacts_visible_to: str = "editor"
     directory: dict[str, Any] | None = None
     base_path: str = ""
+    public_url: str | None = None
+    local_login: bool = True
+    oidc: dict[str, Any] | None = None
     raw: dict[str, Any] = field(default_factory=dict)
 
 
@@ -93,6 +96,12 @@ def load(path: str | os.PathLike[str] | None = None) -> Settings:
     s.secret_key = server.get("secret_key") or os.environ.get("DESKSIDE_SECRET_KEY", "")
     s.admin_password = server.get("admin_password") or os.environ.get("DESKSIDE_ADMIN_PASSWORD")
     s.base_path = (server.get("base_path") or "").rstrip("/")
+    s.public_url = (server.get("public_url") or "").rstrip("/") or None
+    auth = data.get("auth") or {}
+    s.local_login = bool(auth.get("local_login", True))
+    s.oidc = auth.get("oidc") or None
+    if not s.local_login and not s.oidc:
+        raise ConfigError("auth.local_login is false but auth.oidc is not configured: nobody could sign in")
     live = data.get("live") or {}
     s.offline_after = int(live.get("offline_after", s.offline_after))
     s.uplink_mac_threshold = int(live.get("uplink_mac_threshold", s.uplink_mac_threshold))
@@ -131,4 +140,10 @@ def load(path: str | os.PathLike[str] | None = None) -> Settings:
         raise ConfigError(f"source names must be unique: {', '.join(sorted(dupes))}")
     if len(s.secret_key) < 32:
         raise ConfigError("server.secret_key (or DESKSIDE_SECRET_KEY) must be at least 32 characters")
+    if s.oidc:
+        from .oidc import Oidc, OidcError
+        try:
+            Oidc(s.oidc, s.secret_key, s.public_url)
+        except OidcError as exc:
+            raise ConfigError(str(exc)) from exc
     return s

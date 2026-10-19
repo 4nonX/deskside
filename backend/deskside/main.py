@@ -20,6 +20,7 @@ from .api_netbox import router as netbox_router
 from .api_map import router as map_router
 from . import naming, remote
 from .auth import Sessions, ensure_admin
+from .oidc import Oidc
 from .db import Database
 from .engine import Engine
 
@@ -34,7 +35,7 @@ def create_app(settings: config.Settings | None = None) -> FastAPI:
     async def lifespan(app: FastAPI):
         db = Database(settings.database_url)
         db.create_schema()
-        msg = ensure_admin(db, settings.admin_password)
+        msg = ensure_admin(db, settings.admin_password, settings.local_login)
         if msg:
             log.warning(msg)
         app.state.db = db
@@ -42,6 +43,7 @@ def create_app(settings: config.Settings | None = None) -> FastAPI:
         app.state.naming = naming.load(settings.naming)
         app.state.remote_tools = remote.load(settings.raw.get("remote_tools"))
         app.state.sessions = Sessions(settings.secret_key)
+        app.state.oidc = Oidc(settings.oidc, settings.secret_key, settings.public_url) if settings.oidc else None
         app.state.engine = Engine(settings, db)
         app.state.engine.start()
         log.info("deskside %s started with %d source(s)", __version__, len(app.state.engine.sources))
