@@ -92,7 +92,7 @@ With a convention in place, deskside suggests the next free name, flags a device
 
 ## Search
 
-- One field, matching every value on every card: name, IP (full or partial, `.109` finds `10.0.10.109`), MAC in any notation (`2c58b9`, `2C-58-B9`, `2c:58:b9`), switch and port (`GE7`), room number and name, department, person, phone number, note text, remote IDs.
+- One field, matching every value on every card: name, IP (full or partial, `.109` finds `10.0.10.109`), MAC in any notation (`00005e`, `00-00-5E`, `00:00:5e`), switch and port (`GE7`), room number and name, department, person, phone number, note text, remote IDs.
 - Results filter while typing. Several terms narrow the result (`lab printer` finds printers in rooms called "Lab").
 - Selecting a result opens the card. The card is meant to answer a support call without a second click.
 
