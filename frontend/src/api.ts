@@ -7,7 +7,9 @@ export interface Me { username: string; role: Role; version: string }
 export interface NetInfo {
   mac?: string | null;
   ip?: string | null;
-  ip_documented?: boolean;     // no live source has an address; this one is documented in NetBox
+  ip_documented?: boolean;     // no live source has an address; this one is documented
+  ip_documented_by?: "netbox" | "deskside";
+  ip_expected?: string;        // the fixed address set in deskside, when the live one differs
   hostname?: string | null;
   hostname_source?: string | null;
   vendor?: string | null;
@@ -115,7 +117,9 @@ export interface DeviceCard {
   contacts_visible: boolean; naming_warnings: string[]; remote: RemoteEntry[];
   netbox: NetboxInfo | null; netbox_writable: boolean; proposals: ProposalItem[];
   interfaces: DeviceInterface[]; notes: Note[]; events: EventItem[];
-  documented_ip: string | null;
+  documented_ip: string | null; documented_by: "netbox" | "deskside" | null;
+  fixed_ip: string | null; fixed_ip_mismatch: string[];
+  fixed_ip_seen: { mac: string; vendor: string | null; online: boolean; last_seen: number | null } | null;
 }
 export interface UnknownCard extends NetInfo { type: "unknown"; mac: string; events: EventItem[]; suggested_name: string | null }
 export interface SourceState {
@@ -157,10 +161,10 @@ export const api = {
   device: (id: number) => request<DeviceCard>("GET", `/devices/${id}`),
   mac: (mac: string) => request<UnknownCard | { type: "redirect"; device_id: number }>("GET", `/macs/${encodeURIComponent(mac)}`),
   createDevice: (b: { name: string; kind?: string; mac?: string; parent_id?: number; connection?: string;
-    manufacturer?: string; model?: string; serial?: string }) => request<{ id: number }>("POST", "/devices", b),
+    manufacturer?: string; model?: string; serial?: string; fixed_ip?: string }) => request<{ id: number }>("POST", "/devices", b),
   updateDevice: (id: number, b: Partial<{ name: string; kind: string; description: string; room_id: number;
     department_id: number; parent_id: number; connection: string; manufacturer: string; model: string; serial: string;
-    icon: string; clear: ("room" | "department" | "parent")[] }>) => request("PATCH", `/devices/${id}`, b),
+    icon: string; fixed_ip: string; clear: ("room" | "department" | "parent")[] }>) => request("PATCH", `/devices/${id}`, b),
   kinds: () => request<KindItem[]>("GET", "/kinds"),
   setKindIcon: (kind: string, icon: string) => request("PUT", `/kinds/${encodeURIComponent(kind)}`, { icon }),
   graph: () => request<NetGraph>("GET", "/graph"),

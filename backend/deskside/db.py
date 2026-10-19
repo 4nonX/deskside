@@ -43,6 +43,8 @@ class Device(Base):
     manufacturer: Mapped[str] = mapped_column(String(100), default="")
     model: Mapped[str] = mapped_column(String(100), default="")
     serial: Mapped[str] = mapped_column(String(100), default="")
+    fixed_ip: Mapped[str | None] = mapped_column(String(45), nullable=True)   # address set in deskside, for devices
+                                                                            # no source or NetBox gives one
     icon: Mapped[str] = mapped_column(String(60), default="")             # overrides the icon of the device type
     source: Mapped[str] = mapped_column(String(20), default="manual")     # "manual" or "netbox"
     external_id: Mapped[str | None] = mapped_column(String(100), nullable=True, unique=True)

@@ -56,7 +56,7 @@ def graph(request: Request, user: User = Depends(current_user)) -> dict[str, Any
     with _db(request).session() as s:
         devs = [Dev(id=d.id, name=d.name, kind=d.kind or "", icon=d.icon or "", connection=d.connection or "",
                     parent_id=d.parent_id, macs=[i.mac for i in d.interfaces], external_id=d.external_id,
-                    labels={i.mac: i.label or "" for i in d.interfaces})
+                    labels={i.mac: i.label or "" for i in d.interfaces}, fixed_ip=d.fixed_ip)
                 for d in s.scalars(select(Device).options(selectinload(Device.interfaces)))]
         seen = [Seen(mac=x.mac, ip=x.ip, switch=x.switch, port=x.port, hostname=x.hostname, vendor=x.vendor,
                      port_mac_count=x.port_mac_count)

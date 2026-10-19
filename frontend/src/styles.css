@@ -100,6 +100,7 @@ table.devices tbody tr.selected { background: var(--row-sel); }
   padding: 10px 12px; margin: 8px 0; font-weight: 500; }
 .warning svg { flex: none; margin-top: 2px; color: var(--warn-line); }
 .warning .meta { font-weight: 400; }
+.sub.warn-text { color: var(--warn-line); }
 .hint { background: var(--accent-soft); border-radius: 6px; padding: 8px 10px; font-size: 13px; margin-bottom: 8px; }
 .kv { display: grid; gap: 4px; margin: 0; }
 .kv div { display: grid; grid-template-columns: 150px 1fr; gap: 10px; }
@@ -166,6 +167,8 @@ table.dir .note-actions { margin-left: 14px; }
   border: 1px solid var(--line); border-radius: 8px; padding: 14px; margin-bottom: 14px; max-width: 1100px; }
 .person-form label { display: grid; gap: 3px; font-size: 12.5px; color: var(--muted); }
 .person-form .row-actions { grid-column: 1 / -1; }
+.person-form .wide, .person-form > .hint { grid-column: 1 / -1; }
+.person-form label { align-content: start; }
 .people { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 8px; max-width: 1400px; }
 .hit span { display: inline-flex; align-items: center; gap: 6px; }
 

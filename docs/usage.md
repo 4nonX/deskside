@@ -19,7 +19,7 @@ Below the buttons, drop-down filters narrow the list further and combine with th
 - **Type**: one device type, such as printers or servers.
 - **Room**: the room set on the device, otherwise the room its switch port leads to as documented in NetBox.
 - **Switch** and then **Port**: everything seen on one switch or one port.
-- **Data**: devices without an IP address, devices whose address is only documented in NetBox (no DHCP or ARP source reports it), or devices that are not in NetBox.
+- **Data**: devices without an IP address, devices whose address is only documented (in NetBox or in deskside, while no DHCP or ARP source reports it), or devices that are not in NetBox.
 
 Each drop-down only offers values that occur in the current list. **Reset filters** clears them all.
 
@@ -58,6 +58,20 @@ In the tabs: **Details** (users, room and department, device data, network detai
 The connection column, the device card and the network map name the place first and the switch port second, for example "Lab 2" with "core-sw · Port 7 · patch panel 1 F11" beneath it. The place comes from the cabling in NetBox: from the switch port through the patch panel to the device at the far end and its location. A device on a port that leads to another switch or a host is shown as "behind core-sw2". Where NetBox knows the switch but no cable on that port, deskside says "socket not documented" instead of guessing. Without NetBox, you see the switch and port.
 
 Management ports (iLO, iDRAC, interfaces NetBox marks management-only) are never used as a device's main address or position.
+
+## Fixed addresses
+
+Devices with a fixed address (servers, printers, switches, PCs set up by hand) appear in no DHCP lease. Where an ARP source sees them, deskside shows the live address like any other. Where nothing live reports one, deskside shows the address as documented, in this order:
+
+1. **NetBox**, if connected: the device's or virtual machine's primary address, otherwise the first fixed address assigned to one of its interfaces. Marked "as documented in NetBox".
+2. **deskside itself**: the **Fixed IP address** under **Device data**, marked "as set in deskside".
+
+deskside works the same without NetBox: every device you create can carry a fixed address, and that is the only place it is kept. For devices that come from NetBox the field is locked, because NetBox is the record there; the form says so and links to the device in NetBox.
+
+A fixed address is checked against what the network shows:
+
+- If DHCP or ARP sees the device under a different address, the card warns ("fixed address 10.0.10.40 is set, but 10.0.10.77 is seen") and the list shows the expected address under the live one.
+- If the device has no MAC address yet and its fixed address turns up on the network under a MAC that belongs to no device, the card offers to add that MAC. Randomised MAC addresses (phones and laptops that got the address from a pool) are never offered.
 
 ## Addresses that only a DHCP lease knows
 

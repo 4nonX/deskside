@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import ipaddress
 import json
 import logging
 import time
@@ -21,7 +22,7 @@ from .auth import COOKIE, MAX_AGE, ROLES, current_user, hash_password, require, 
 from . import naming
 from .db import (AuditLog, Department, Device, DevicePerson, EventLog, History, Interface, Note, Person, Proposal, Room,
                  Sighting, User, now)
-from .netaddr import ip_sort_key, mac_search_key, normalize_mac
+from .netaddr import ip_sort_key, is_locally_administered, mac_search_key, normalize_mac
 from .oidc import STATE_COOKIE, STATE_MAX_AGE, OidcError
 from .search import filter_rows, search_blob
 
@@ -232,12 +233,16 @@ def build_rows(s: Session, ports: Any, contacts: bool) -> list[dict[str, Any]]:
                "room": _room_label(d.room) or None, "department": d.department.name if d.department else None,
                "people": [dp.person.display_name for dp in links]}
         row["mac"] = row.get("mac") or (macs[0] if macs else None)
-        if not row.get("ip") and hasattr(ports, "documented_ip"):
-            # Fixed addresses that no DHCP or ARP source reports: what NetBox documents, marked as such.
-            doc = ports.documented_ip(d.name, macs, d.external_id)
+        live_ip = row.get("ip")
+        if not live_ip:
+            # Fixed addresses that no DHCP or ARP source reports: what NetBox documents, else what was set in deskside.
+            doc, by = _documented_ip(ports, d)
             if doc:
-                row["ip"], row["ip_documented"] = doc, True
+                row["ip"], row["ip_documented"], row["ip_documented_by"] = doc, True, by
+        elif d.fixed_ip and d.fixed_ip != live_ip:
+            row["ip_expected"] = d.fixed_ip
         extra = [n.text for n in d.notes] + [x.ip for x in sgs if x.ip] + ([row["ip"]] if row.get("ip_documented") else [])
+        extra += [d.fixed_ip] if d.fixed_ip else []
         extra += [x.hostname for x in sgs if x.hostname] + [i.label for i in d.interfaces if i.label]
         if d.room:
             extra += [d.room.number, d.room.name, d.room.building, d.room.floor]
@@ -316,10 +321,18 @@ def get_device(device_id: int, request: Request, user: User = Depends(current_us
         sightings = {x.mac: x for x in s.scalars(select(Sighting).where(Sighting.mac.in_([i.mac for i in d.interfaces])))}
         ips = [x.ip for x in sightings.values() if x.ip]
         links = sorted(d.people, key=lambda dp: (not dp.is_primary, dp.person.display_name.lower()))
-        # Same fallback as the device list: a fixed address no live source reports, as NetBox documents it.
-        documented = None
-        if not ips and hasattr(ports, "documented_ip"):
-            documented = ports.documented_ip(d.name, [i.mac for i in d.interfaces], d.external_id)
+        # Same fallback as the device list: a fixed address no live source reports, as documented.
+        documented, documented_by = _documented_ip(ports, d) if not ips else (None, None)
+        # A fixed address seen on the network under a MAC that belongs to no device yet: offer to take it over.
+        seen_at_ip = None
+        if d.fixed_ip:
+            owned = select(Interface.mac)
+            # Randomised MACs are phones and laptops that got the address from a pool; never a fixed-address device.
+            sg = next((x for x in s.scalars(select(Sighting).where(Sighting.ip == d.fixed_ip, Sighting.mac.not_in(owned))
+                                            .order_by(Sighting.online.desc(), Sighting.last_seen.desc()))
+                       if not is_locally_administered(x.mac)), None)
+            if sg is not None:
+                seen_at_ip = {"mac": sg.mac, "vendor": sg.vendor, "online": sg.online, "last_seen": sg.last_seen or None}
         return {
             "type": "device", "id": d.id, "name": d.name, "kind": d.kind, "description": d.description,
             "created_at": d.created_at, "updated_at": d.updated_at,
@@ -334,7 +347,9 @@ def get_device(device_id: int, request: Request, user: User = Depends(current_us
             "department": {"id": d.department.id, "name": d.department.name} if d.department else None,
             "people": [{"link_id": dp.id, "primary": dp.is_primary, **_person_dict(dp.person, contacts)} for dp in links],
             "contacts_visible": contacts,
-            "documented_ip": documented,
+            "documented_ip": documented, "documented_by": documented_by,
+            "fixed_ip": d.fixed_ip, "fixed_ip_seen": seen_at_ip,
+            "fixed_ip_mismatch": sorted({ip for ip in ips if d.fixed_ip and ip != d.fixed_ip}),
             "naming_warnings": naming.check(_conventions(request), d.name, d.kind, ips),
             "interfaces": [{"id": i.id, "mac": i.mac, "label": i.label, "expected_ip": i.expected_ip,
                             **{k: v for k, v in _sighting_dict(sightings.get(i.mac), ports).items() if k != "mac"}}
@@ -380,6 +395,7 @@ class DeviceBody(BaseModel):
     model: str = Field(default="", max_length=100)
     serial: str = Field(default="", max_length=100)
     icon: str = Field(default="", max_length=60)
+    fixed_ip: str = Field(default="", max_length=45)
 
 
 class DevicePatch(BaseModel):
@@ -394,6 +410,7 @@ class DevicePatch(BaseModel):
     model: str | None = Field(default=None, max_length=100)
     serial: str | None = Field(default=None, max_length=100)
     icon: str | None = Field(default=None, max_length=60)
+    fixed_ip: str | None = Field(default=None, max_length=45)   # "" removes it
     clear: list[str] = Field(default_factory=list)   # "room", "department", "parent": remove the assignment
 
 
@@ -440,6 +457,27 @@ def _segment(s: Session, d: Device, sightings: dict[str, Sighting], ports: Any) 
             "port_mac_count": sg.port_mac_count, "behind_uplink": sg.behind_uplink, "online": sg.online, "peers": peers}
 
 
+def _documented_ip(ports: Any, d: Device) -> tuple[str | None, str | None]:
+    """The address a device should have when no live source reports one, and who says so: NetBox first, as the
+    documentation of record where it is connected, then the address set in deskside."""
+    if hasattr(ports, "documented_ip"):
+        doc = ports.documented_ip(d.name, [i.mac for i in d.interfaces], d.external_id)
+        if doc:
+            return doc, "netbox"
+    return (d.fixed_ip, "deskside") if d.fixed_ip else (None, None)
+
+
+def _clean_ip(value: str) -> str | None:
+    """A fixed address as entered: empty means none, anything else must be one IPv4 or IPv6 address."""
+    value = value.strip()
+    if not value:
+        return None
+    try:
+        return str(ipaddress.ip_address(value.split("/")[0]))
+    except ValueError:
+        raise HTTPException(400, f"{value} is not an IP address.") from None
+
+
 def _mac_free(s: Session, mac: str) -> None:
     owner = s.scalar(select(Device).join(Interface).where(Interface.mac == mac))
     if owner:
@@ -451,7 +489,7 @@ def create_device(body: DeviceBody, request: Request, user: User = Depends(requi
     with _db(request).session() as s:
         d = Device(name=body.name.strip(), kind=body.kind.strip(), description=body.description,
                    connection=body.connection.strip(), manufacturer=body.manufacturer.strip(), model=body.model.strip(),
-                   serial=body.serial.strip(), icon=body.icon.strip())
+                   serial=body.serial.strip(), icon=body.icon.strip(), fixed_ip=_clean_ip(body.fixed_ip))
         if body.parent_id is not None:
             if s.get(Device, body.parent_id) is None:
                 raise HTTPException(404, "No such parent device.")
@@ -480,6 +518,10 @@ def update_device(device_id: int, body: DevicePatch, request: Request,
         changes = body.model_dump(exclude_none=True, exclude={"clear"})
         if d.source == "netbox" and {"name", "manufacturer", "model", "serial"} & set(changes):
             raise HTTPException(400, "Name, manufacturer, model and serial of this device come from NetBox; change them there.")
+        if d.source == "netbox" and "fixed_ip" in changes:
+            raise HTTPException(400, "The addresses of this device come from NetBox; change them there.")
+        if "fixed_ip" in changes:
+            d.fixed_ip = changes["fixed_ip"] = _clean_ip(changes["fixed_ip"])
         for k in ("name", "kind", "description", "connection", "manufacturer", "model", "serial", "icon"):
             if k in changes:
                 setattr(d, k, changes[k].strip() if k != "description" else changes[k])

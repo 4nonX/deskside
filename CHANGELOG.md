@@ -4,6 +4,18 @@ All notable changes to deskside are listed here. The format follows [Keep a Chan
 
 ## [Unreleased]
 
+## [0.1.4] - 2026-10-19
+
+### Added
+
+- **Fixed IP address** per device under **Device data**, so deskside can keep addresses on its own, with or without NetBox. It is shown, marked "as set in deskside", whenever no DHCP, ARP or NetBox source reports an address; NetBox documentation takes precedence where it exists. Locked for devices that come from NetBox.
+- The card warns when the live address differs from the fixed one, and the list shows the expected address under the live one.
+- A device with a fixed address but no MAC yet offers the MAC its address is seen under, if that MAC belongs to no device and is not randomised.
+
+### Changed
+
+- The NetBox note in the device data form now also covers IP addresses and spans the full width of the form.
+
 ## [0.1.3] - 2026-10-19
 
 ### Fixed

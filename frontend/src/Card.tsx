@@ -109,11 +109,23 @@ function DeviceView({ d, canEdit, isAdmin, wrap, onDeleted, onSelect }:
         <div key={n.id} className="warning"><IconWarn /><div>{n.text}<div className="meta">{t("note.by", { author: n.author, t: ago(n.updated_at) })}</div></div></div>
       ))}
       <NamingWarnings warnings={d.naming_warnings} />
+      {d.fixed_ip && d.fixed_ip_mismatch.map((ip) => (
+        <div key={ip} className="warning"><IconWarn /><div>{t("ip.mismatch", { ip: d.fixed_ip!, seen: ip })}</div></div>
+      ))}
+      {d.fixed_ip_seen && (
+        <div className="hint"><IconWarn />
+          <span>{t("ip.seenat", { ip: d.fixed_ip!, mac: d.fixed_ip_seen.mac })}{d.fixed_ip_seen.vendor ? ` (${d.fixed_ip_seen.vendor})` : ""}{" "}
+            {canEdit && <button className="link small" onClick={wrap(() => api.addInterface(d.id, d.fixed_ip_seen!.mac))}>{t("ip.adopt")}</button>}
+          </span>
+        </div>
+      )}
 
       {(main || primary || d.documented_ip) && (
         <div className="facts">
           {main?.ip && <Fact label={t("card.ip")} value={main.ip} mono />}
-          {!main?.ip && d.documented_ip && <Fact label={`${t("card.ip")} · ${t("ip.documented")}`} value={d.documented_ip} mono />}
+          {!main?.ip && d.documented_ip && (
+            <Fact label={`${t("card.ip")} · ${t(d.documented_by === "deskside" ? "ip.bydeskside" : "ip.documented")}`} value={d.documented_ip} mono />
+          )}
           {main && <Fact label={t("card.mac")} value={main.mac} mono />}
           {main?.hostname && <Fact label={t("card.hostname")} value={main.hostname} mono />}
           {primary && (
@@ -244,12 +256,14 @@ function Connection({ d, onSelect }: { d: DeviceCard; onSelect: (s: Selection) =
 
 function DeviceData({ d, canEdit, wrap }: { d: DeviceCard; canEdit: boolean; wrap: Wrap }) {
   const [edit, setEdit] = useState(false);
-  const [f, setF] = useState({ manufacturer: d.manufacturer, model: d.model, serial: d.serial, connection: d.connection });
+  const [f, setF] = useState({ manufacturer: d.manufacturer, model: d.model, serial: d.serial, connection: d.connection,
+    fixed_ip: d.fixed_ip ?? "" });
   const fromNetbox = d.source === "netbox";
   if (!edit) {
     const rows: [string, React.ReactNode][] = [
       [t("dev.manufacturer"), d.manufacturer], [t("dev.model"), d.model],
       [t("dev.serial"), d.serial && <Copyable value={d.serial} mono />],
+      [t("dev.fixedip"), d.fixed_ip && <Copyable value={d.fixed_ip} mono />],
       [t("dev.connection"), d.connection && (connectionLabel(d.connection))],
       [t("dev.source"), fromNetbox ? t("dir.fromnetbox") : null],
     ];
@@ -270,10 +284,18 @@ function DeviceData({ d, canEdit, wrap }: { d: DeviceCard; canEdit: boolean; wra
         {(["manufacturer", "model", "serial"] as const).map((k) => (
           <label key={k}>{t(`dev.${k}`)}<input value={f[k]} disabled={fromNetbox} onChange={(e) => setF({ ...f, [k]: e.target.value })} /></label>
         ))}
+        {!fromNetbox && (
+          <label className="wide">{t("dev.fixedip")}
+            <input className="mono" placeholder="192.0.2.10" style={{ maxWidth: 220 }} value={f.fixed_ip}
+                   onChange={(e) => setF({ ...f, fixed_ip: e.target.value })} />
+            <span className="sub">{t("dev.fixedip.hint")}</span>
+          </label>
+        )}
         <label>{t("dev.connection")}<ConnectionSelect value={f.connection} onChange={(v) => setF({ ...f, connection: v })} /></label>
         <div className="row-actions">
           <button className="primary" onClick={wrap(async () => {
-            await api.updateDevice(d.id, fromNetbox ? { connection: f.connection } : f);
+            const { fixed_ip, ...rest } = f;
+            await api.updateDevice(d.id, fromNetbox ? { connection: f.connection } : { ...rest, fixed_ip: fixed_ip.trim() });
             setEdit(false);
           })}>{t("dir.save")}</button>
           <button onClick={() => setEdit(false)}>{t("dir.cancel")}</button>

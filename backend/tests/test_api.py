@@ -193,3 +193,46 @@ def test_cli_help_does_not_start_a_server(monkeypatch, capsys):
     with pytest.raises(SystemExit) as exc:
         main.run()
     assert exc.value.code == 0 and "update-oui" in capsys.readouterr().out
+
+
+def test_fixed_ip_set_in_deskside(client, monkeypatch):
+    # Without NetBox deskside keeps fixed addresses itself; they show when no live source reports one.
+    from deskside.db import Device, Sighting
+    assert client.post("/api/devices", json={"name": "PRN01", "fixed_ip": "nonsense"}).status_code == 400
+    dev = client.post("/api/devices", json={"name": "PRN01", "kind": "printer", "fixed_ip": "10.0.10.40"}).json()["id"]
+    row = next(r for r in client.get("/api/devices").json()["rows"] if r.get("id") == dev)
+    assert (row["ip"], row["ip_documented"], row["ip_documented_by"]) == ("10.0.10.40", True, "deskside")
+    assert [r["id"] for r in client.get("/api/devices", params={"q": "10.0.10.40"}).json()["rows"]] == [dev]
+    card = client.get(f"/api/devices/{dev}").json()
+    assert (card["fixed_ip"], card["documented_ip"], card["documented_by"], card["fixed_ip_seen"]) == \
+        ("10.0.10.40", "10.0.10.40", "deskside", None)
+
+    # The address turns up under a MAC no device owns yet: the card offers it.
+    with client.app.state.db.session() as s:
+        s.add(Sighting(mac="02:00:5E:00:53:41", ip="10.0.10.40", online=True))     # randomised: a phone, never offered
+    assert client.get(f"/api/devices/{dev}").json()["fixed_ip_seen"] is None
+    with client.app.state.db.session() as s:
+        s.add(Sighting(mac="00:00:5E:00:53:40", ip="10.0.10.40", online=True, switch="core", port="Gi9"))
+    assert client.get(f"/api/devices/{dev}").json()["fixed_ip_seen"]["mac"] == "00:00:5E:00:53:40"
+    assert client.post(f"/api/devices/{dev}/interfaces", json={"mac": "00:00:5E:00:53:40"}).status_code == 200
+    card = client.get(f"/api/devices/{dev}").json()
+    assert card["fixed_ip_seen"] is None and card["documented_ip"] is None    # now live through its own MAC
+
+    # A live address that differs from the fixed one is flagged, not hidden.
+    with client.app.state.db.session() as s:
+        s.get(Sighting, "00:00:5E:00:53:40").ip = "10.0.10.77"
+    card = client.get(f"/api/devices/{dev}").json()
+    assert card["fixed_ip_mismatch"] == ["10.0.10.77"]
+    row = next(r for r in client.get("/api/devices").json()["rows"] if r.get("id") == dev)
+    assert (row["ip"], row["ip_expected"]) == ("10.0.10.77", "10.0.10.40")
+
+    # Clearing, and NetBox: its documentation wins, and its devices cannot get a deskside address.
+    assert client.patch(f"/api/devices/{dev}", json={"fixed_ip": ""}).status_code == 200
+    assert client.get(f"/api/devices/{dev}").json()["fixed_ip"] is None
+    other = client.post("/api/devices", json={"name": "NAS02", "fixed_ip": "10.0.10.6"}).json()["id"]
+    monkeypatch.setattr(client.app.state.engine, "documented_ip",
+                        lambda name, macs, external_id=None: "10.0.10.5" if name == "NAS02" else None, raising=False)
+    assert client.get(f"/api/devices/{other}").json()["documented_by"] == "netbox"
+    with client.app.state.db.session() as s:
+        s.get(Device, other).source = "netbox"
+    assert client.patch(f"/api/devices/{other}", json={"fixed_ip": "10.0.10.9"}).status_code == 400

@@ -290,7 +290,9 @@ function DeviceTable({ rows, selected, onSelect }: { rows: Row[]; selected: Sele
             </td>
             <td>{r.people[0]}{r.people.length > 1 && <span className="sub"> +{r.people.length - 1}</span>}</td>
             <td>{r.room}{r.department && <div className="sub">{r.department}</div>}</td>
-            <td><Copyable value={r.ip} mono />{r.ip_documented && <div className="sub">{t("ip.documented")}</div>}</td>
+            <td><Copyable value={r.ip} mono />
+              {r.ip_documented && <div className="sub">{t(r.ip_documented_by === "deskside" ? "ip.bydeskside" : "ip.documented")}</div>}
+              {r.ip_expected && <div className="sub warn-text" title={t("ip.mismatch", { ip: r.ip_expected })}>{t("ip.expected", { ip: r.ip_expected })}</div>}</td>
             <td><Copyable value={r.mac} mono /></td>
             <td>
               {r.parent ? <span className="sub">{t(isVm(r) ? "card.vmon" : "card.attachedto")} {r.parent}</span> : r.port && (() => {
