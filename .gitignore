@@ -28,3 +28,7 @@ data/
 .idea/
 .DS_Store
 Thumbs.db
+
+# Frontend build output (built in the container image)
+backend/deskside/static/
+.claude/

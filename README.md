@@ -13,7 +13,14 @@ The network part of each card keeps itself current. deskside reads switch MAC ta
 
 ## Status
 
-Early development. The design is settled, the code is not written yet, and there is nothing to install. The plan and the reasoning behind it are in [docs/design.md](docs/design.md).
+Early development, not yet released. The first milestone works: switch, ARP and DHCP collection (or Netdisco), the device list with search, device cards with live network data, names and pinned notes, events, and local accounts. Rooms, departments, people, remote access buttons and the NetBox connection follow in the next milestones, see [docs/design.md](docs/design.md).
+
+## Documentation
+
+- [Installation](docs/installation.md)
+- [Configuration](docs/configuration.md), including how sources are combined and which events exist
+- [Data sources](docs/sources.md), with the least access each one needs
+- [Design](docs/design.md): scope, decisions and milestones
 
 ## Principles
 

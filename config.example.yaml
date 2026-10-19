@@ -1,0 +1,83 @@
+# deskside configuration example.
+#
+# Copy this file to config.yaml and adjust it. Secrets do not belong in this file:
+#   - any key ending in _file is read from that file (community_file, password_file, ...)
+#   - ${NAME} is replaced by the environment variable NAME
+# Every option is described in docs/configuration.md.
+
+server:
+  secret_key_file: /run/secrets/secret_key        # at least 32 random characters, signs sessions
+  admin_password_file: /run/secrets/admin_password # only used to create the first "admin" account
+
+database:
+  url: sqlite:////data/deskside.db                 # four slashes: absolute path
+
+live:
+  offline_after: 900          # seconds without a sighting before a device counts as offline
+  uplink_mac_threshold: 4     # more MACs than this on a port without a known neighbour: flagged
+  retention_days: 90          # how long events are kept
+
+dns:
+  reverse: true               # look up names for addresses that no other source names
+
+# oui_file: /data/oui.csv     # vendor names; download once with: deskside update-oui /data/oui.csv
+
+sources:
+  # A managed switch, read over SNMP. Repeat for every switch.
+  - type: snmp-switch
+    name: core-switch
+    host: 10.0.0.2
+    display_name: core-sw1    # optional: when the switch reports a generic sysName
+    version: 2c               # 1, 2c or 3
+    community_file: /run/secrets/snmp_community
+    # uplinks: [GigabitEthernet48]   # ports that lead to other switches, if LLDP does not tell
+    interval: 60
+
+  # SNMPv3 instead:
+  # - type: snmp-switch
+  #   name: access-switch
+  #   host: 10.0.0.3
+  #   version: "3"
+  #   user: deskside
+  #   auth_protocol: sha256    # md5, sha, sha224, sha256, sha384, sha512
+  #   auth_key_file: /run/secrets/snmp_auth
+  #   priv_protocol: aes       # des, aes, aes192, aes256
+  #   priv_key_file: /run/secrets/snmp_priv
+
+  # ARP table of the router or layer-3 switch that routes the client networks.
+  # - type: snmp-arp
+  #   name: router-arp
+  #   host: 10.0.0.1
+  #   community_file: /run/secrets/snmp_community
+
+  # Or sweep directly attached networks from the deskside host (needs host networking).
+  - type: local-arp
+    name: lan-arp
+    networks: [10.0.10.0/24]
+    interval: 300
+
+  # DHCP leases, pick what matches your server:
+  # - type: dhcp-windows       # Windows DHCP Server over WinRM, read-only account
+  #   name: dhcp
+  #   host: dhcp01.example.org
+  #   user: EXAMPLE\svc-deskside
+  #   password_file: /run/secrets/dhcp_password
+  # - type: dhcp-file          # a lease file or export
+  #   name: dhcp
+  #   format: dnsmasq          # windows-csv, windows-mmc, dnsmasq, isc, kea-csv
+  #   path: /leases/dnsmasq.leases
+  # - type: dhcp-kea
+  #   name: dhcp
+  #   url: http://kea-ctrl-agent:8000/
+  # - type: dhcp-opnsense
+  #   name: dhcp
+  #   url: https://firewall.example.org/
+  #   key_file: /run/secrets/opnsense_key
+  #   secret_file: /run/secrets/opnsense_secret
+  #   backend: kea             # or isc
+
+  # Netdisco instead of (or in addition to) direct switch polling.
+  # - type: netdisco
+  #   name: netdisco
+  #   url: https://netdisco.example.org
+  #   token_file: /run/secrets/netdisco_token

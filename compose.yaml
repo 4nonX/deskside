@@ -1,0 +1,17 @@
+# Minimal setup. See docs/installation.md for what each part does.
+services:
+  deskside:
+    build: .
+    # A published image will be available from the first release on.
+    restart: unless-stopped
+    # Host networking is only needed for the local-arp source, which has to sit in the
+    # networks it sweeps. Without local-arp, remove this line and publish the port instead:
+    #   ports: ["8080:8080"]
+    network_mode: host
+    volumes:
+      - ./config.yaml:/config/config.yaml:ro
+      - ./secrets:/run/secrets:ro
+      - deskside-data:/data
+
+volumes:
+  deskside-data:

@@ -1,0 +1,155 @@
+"""Database schema and session handling.
+
+Timestamps are stored as integer Unix seconds (UTC). That keeps SQLite and
+PostgreSQL behaving the same and serialises without timezone surprises.
+"""
+
+from __future__ import annotations
+
+import time
+from collections.abc import Iterator
+from contextlib import contextmanager
+from pathlib import Path
+
+from sqlalchemy import (
+    JSON, Boolean, ForeignKey, Integer, String, Text, create_engine, event, select,
+)
+from sqlalchemy.engine import Engine
+from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, relationship, sessionmaker
+
+
+def now() -> int:
+    return int(time.time())
+
+
+class Base(DeclarativeBase):
+    pass
+
+
+class Device(Base):
+    """A device someone cares about. Created by hand or from an unknown sighting."""
+
+    __tablename__ = "devices"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(200), index=True)
+    kind: Mapped[str] = mapped_column(String(50), default="")
+    description: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[int] = mapped_column(Integer, default=now)
+    updated_at: Mapped[int] = mapped_column(Integer, default=now, onupdate=now)
+
+    interfaces: Mapped[list[Interface]] = relationship(back_populates="device", cascade="all, delete-orphan")
+    notes: Mapped[list[Note]] = relationship(back_populates="device", cascade="all, delete-orphan",
+                                             order_by="Note.created_at.desc()")
+
+
+class Interface(Base):
+    """A MAC address that belongs to a device. Live data attaches through the MAC."""
+
+    __tablename__ = "interfaces"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    device_id: Mapped[int] = mapped_column(ForeignKey("devices.id", ondelete="CASCADE"), index=True)
+    mac: Mapped[str] = mapped_column(String(17), unique=True)
+    label: Mapped[str] = mapped_column(String(100), default="")
+    expected_ip: Mapped[str | None] = mapped_column(String(45), nullable=True)
+
+    device: Mapped[Device] = relationship(back_populates="interfaces")
+
+
+class Note(Base):
+    __tablename__ = "notes"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    device_id: Mapped[int] = mapped_column(ForeignKey("devices.id", ondelete="CASCADE"), index=True)
+    text: Mapped[str] = mapped_column(Text)
+    pinned: Mapped[bool] = mapped_column(Boolean, default=False)
+    author: Mapped[str] = mapped_column(String(100), default="")
+    created_at: Mapped[int] = mapped_column(Integer, default=now)
+    updated_at: Mapped[int] = mapped_column(Integer, default=now, onupdate=now)
+
+    device: Mapped[Device] = relationship(back_populates="notes")
+
+
+class Sighting(Base):
+    """What the collectors currently know about one MAC address."""
+
+    __tablename__ = "sightings"
+    mac: Mapped[str] = mapped_column(String(17), primary_key=True)
+    ip: Mapped[str | None] = mapped_column(String(45), nullable=True, index=True)
+    hostname: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    hostname_source: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    vendor: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    switch: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    port: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    vlan: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    port_mac_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    behind_uplink: Mapped[bool] = mapped_column(Boolean, default=False)
+    dhcp: Mapped[bool] = mapped_column(Boolean, default=False)
+    online: Mapped[bool] = mapped_column(Boolean, default=True)
+    first_seen: Mapped[int] = mapped_column(Integer, default=now)
+    last_seen: Mapped[int] = mapped_column(Integer, default=now)
+    port_since: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    sources: Mapped[list[str]] = mapped_column(JSON, default=list)
+
+
+class EventLog(Base):
+    __tablename__ = "events"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    ts: Mapped[int] = mapped_column(Integer, default=now, index=True)
+    kind: Mapped[str] = mapped_column(String(50), index=True)
+    mac: Mapped[str | None] = mapped_column(String(17), nullable=True, index=True)
+    device_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    message: Mapped[str] = mapped_column(Text)
+    data: Mapped[dict] = mapped_column(JSON, default=dict)
+
+
+class User(Base):
+    __tablename__ = "users"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    username: Mapped[str] = mapped_column(String(100), unique=True)
+    password_hash: Mapped[str] = mapped_column(String(300))
+    role: Mapped[str] = mapped_column(String(20), default="viewer")
+    created_at: Mapped[int] = mapped_column(Integer, default=now)
+    last_login: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+
+class AuditLog(Base):
+    """Every change made through the API, with who made it."""
+
+    __tablename__ = "audit"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    ts: Mapped[int] = mapped_column(Integer, default=now, index=True)
+    username: Mapped[str] = mapped_column(String(100))
+    action: Mapped[str] = mapped_column(String(100))
+    target: Mapped[str] = mapped_column(String(200), default="")
+    detail: Mapped[dict] = mapped_column(JSON, default=dict)
+
+
+class Database:
+    def __init__(self, url: str) -> None:
+        if url.startswith("sqlite:///"):
+            Path(url.removeprefix("sqlite:///")).parent.mkdir(parents=True, exist_ok=True)
+        self.engine: Engine = create_engine(url, future=True)
+        if url.startswith("sqlite"):
+            @event.listens_for(self.engine, "connect")
+            def _sqlite_pragmas(dbapi_conn, _record):  # noqa: ANN001
+                cur = dbapi_conn.cursor()
+                cur.execute("PRAGMA journal_mode=WAL")
+                cur.execute("PRAGMA foreign_keys=ON")
+                cur.close()
+        self._sessions = sessionmaker(self.engine, expire_on_commit=False)
+
+    def create_schema(self) -> None:
+        Base.metadata.create_all(self.engine)
+
+    @contextmanager
+    def session(self) -> Iterator[Session]:
+        with self._sessions() as s:
+            try:
+                yield s
+                s.commit()
+            except Exception:
+                s.rollback()
+                raise
+
+    def device_for_mac(self, s: Session, mac: str) -> Device | None:
+        iface = s.scalar(select(Interface).where(Interface.mac == mac))
+        return iface.device if iface else None

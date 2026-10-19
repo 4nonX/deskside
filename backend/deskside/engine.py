@@ -1,0 +1,357 @@
+"""The engine: runs sources, merges their snapshots and records what changed.
+
+Merge rules, in short:
+
+* A MAC's location is the switch port where it is learned. When it is learned
+  on several ports (several switches in a chain), the port that is not an
+  uplink and carries the fewest MACs wins, because that is the port closest
+  to the device.
+* A port is an uplink when a neighbour is known on it (LLDP, Netdisco or
+  configuration). A port that carries more MACs than ``uplink_mac_threshold``
+  without being a known uplink is flagged as "probably an unmanaged switch".
+* The IP comes from ARP when available (it reflects what the device uses
+  right now), otherwise from DHCP or Netdisco. The hostname comes from DHCP,
+  then Netdisco, then reverse DNS.
+* Snapshots older than three intervals of their source are ignored, so one
+  failing source does not freeze old data in place.
+* Only switch tables and ARP count as proof that a device is online. DHCP
+  leases outlive the device being switched on by days, so they only add
+  addresses and names.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import csv
+import logging
+import socket
+import time
+from collections import defaultdict
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any
+
+from sqlalchemy import delete, select
+
+from .config import Settings
+from .db import Database, EventLog, Interface, Sighting, now
+from .netaddr import is_locally_administered, oui
+from .sources import AddressEntry, PortEntry, Snapshot, Source, SourceError, build_sources
+
+log = logging.getLogger("deskside.engine")
+
+ORIGIN_RANK = {"arp": 0, "dhcp": 1, "netdisco": 2}
+
+
+@dataclass
+class SourceState:
+    name: str
+    type: str
+    interval: int
+    last_run: float | None = None
+    last_ok: float | None = None
+    duration: float | None = None
+    error: str | None = None
+    counts: dict[str, int] = field(default_factory=dict)
+
+
+@dataclass
+class Observed:
+    mac: str
+    switch: str | None = None
+    port: str | None = None
+    vlan: int | None = None
+    port_mac_count: int | None = None
+    behind_uplink: bool = False
+    ip: str | None = None
+    hostname: str | None = None
+    hostname_source: str | None = None
+    dhcp: bool = False
+    vendor: str | None = None
+    live: bool = False              # seen in a switch table or ARP right now, not just in a lease
+    sources: set[str] = field(default_factory=set)
+
+
+class Oui:
+    """Vendor lookup from the IEEE registry CSV (https://standards-oui.ieee.org/oui/oui.csv)."""
+
+    def __init__(self, path: str | None) -> None:
+        self.table: dict[str, str] = {}
+        if path and Path(path).exists():
+            with open(path, encoding="utf-8", errors="replace", newline="") as fh:
+                for row in csv.DictReader(fh):
+                    a = (row.get("Assignment") or "").upper()
+                    if len(a) == 6:
+                        self.table[f"{a[0:2]}:{a[2:4]}:{a[4:6]}"] = (row.get("Organization Name") or "").strip()
+            log.info("loaded %d vendor prefixes from %s", len(self.table), path)
+
+    def lookup(self, mac: str) -> str | None:
+        if is_locally_administered(mac):
+            return "randomised MAC"
+        return self.table.get(oui(mac))
+
+
+class Engine:
+    def __init__(self, settings: Settings, db: Database) -> None:
+        self.settings = settings
+        self.db = db
+        self.sources: list[Source] = build_sources(settings.sources)
+        self.state = {s.name: SourceState(s.name, s.type, s.interval) for s in self.sources}
+        self.snapshots: dict[str, Snapshot] = {}
+        self.oui = Oui(settings.raw.get("oui_file"))
+        dns = settings.raw.get("dns") or {}
+        self.reverse_dns = bool(dns.get("reverse", True))
+        self._dns_cache: dict[str, tuple[float, str | None]] = {}
+        self.port_aliases: dict[tuple[str, str], str] = {}
+        self.suspect_ports: dict[tuple[str, str], int] = {}
+        self._subscribers: set[asyncio.Queue[dict[str, Any]]] = set()
+        self._merge_lock = asyncio.Lock()
+        self._tasks: list[asyncio.Task[None]] = []
+        self._dns_task: asyncio.Task[None] | None = None
+        self.last_merge: float | None = None
+
+    # --- lifecycle ---------------------------------------------------------------------------
+    def start(self) -> None:
+        for src in self.sources:
+            self._tasks.append(asyncio.create_task(self._loop(src), name=f"source:{src.name}"))
+        self._tasks.append(asyncio.create_task(self._housekeeping(), name="housekeeping"))
+
+    async def stop(self) -> None:
+        for t in self._tasks:
+            t.cancel()
+        await asyncio.gather(*self._tasks, return_exceptions=True)
+
+    async def _loop(self, src: Source) -> None:
+        while True:
+            await self.run_source(src)
+            await asyncio.sleep(src.interval)
+
+    async def run_source(self, src: Source) -> None:
+        st = self.state[src.name]
+        start = time.time()
+        st.last_run = start
+        try:
+            snap = await asyncio.wait_for(src.collect(), timeout=max(30, src.interval * 2))
+        except SourceError as exc:
+            st.error = str(exc)
+            log.warning("%s", exc)
+        except TimeoutError:
+            st.error = f"source {src.name}: no result within {max(30, src.interval * 2)} seconds"
+            log.warning("%s", st.error)
+        except Exception as exc:  # a broken source must never stop the others
+            st.error = f"source {src.name}: unexpected error: {exc!r}"
+            log.exception("source %s failed", src.name)
+        else:
+            st.error = None
+            st.last_ok = time.time()
+            st.counts = {"ports": len(snap.ports), "addresses": len(snap.addresses), "neighbors": len(snap.neighbors)}
+            self.snapshots[src.name] = snap
+            await self.merge()
+        finally:
+            st.duration = round(time.time() - start, 2)
+            self.publish({"type": "sources"})
+
+    async def _housekeeping(self) -> None:
+        while True:
+            await asyncio.sleep(60)
+            try:
+                await self.merge()
+                cutoff = now() - self.settings.retention_days * 86400
+                with self.db.session() as s:
+                    s.execute(delete(EventLog).where(EventLog.ts < cutoff))
+            except Exception:
+                log.exception("housekeeping failed")
+
+    # --- live updates ------------------------------------------------------------------------
+    def subscribe(self) -> asyncio.Queue[dict[str, Any]]:
+        q: asyncio.Queue[dict[str, Any]] = asyncio.Queue(maxsize=100)
+        self._subscribers.add(q)
+        return q
+
+    def unsubscribe(self, q: asyncio.Queue[dict[str, Any]]) -> None:
+        self._subscribers.discard(q)
+
+    def publish(self, msg: dict[str, Any]) -> None:
+        for q in list(self._subscribers):
+            try:
+                q.put_nowait(msg)
+            except asyncio.QueueFull:
+                pass
+
+    # --- merging -----------------------------------------------------------------------------
+    def _fresh_snapshots(self) -> list[tuple[str, Snapshot]]:
+        t = time.time()
+        return [(name, snap) for name, snap in self.snapshots.items()
+                if t - snap.taken_at <= 3 * self.state[name].interval + 60]
+
+    def compute(self) -> dict[str, Observed]:
+        """Merge the current snapshots into one record per MAC. Pure, no I/O except DNS cache reads."""
+        fresh = self._fresh_snapshots()
+        port_macs: dict[tuple[str, str], set[str]] = defaultdict(set)
+        entries: dict[str, list[tuple[PortEntry, str]]] = defaultdict(list)
+        uplinks: set[tuple[str, str]] = set()
+        addrs: dict[str, list[tuple[AddressEntry, str]]] = defaultdict(list)
+        vendors: dict[str, str] = {}
+        aliases: dict[tuple[str, str], str] = {}
+        for name, snap in fresh:
+            for p in snap.ports:
+                port_macs[(p.switch, p.port)].add(p.mac)
+                entries[p.mac].append((p, name))
+            for n in snap.neighbors:
+                uplinks.add((n.switch, n.port))
+            for a in snap.addresses:
+                addrs[a.mac].append((a, name))
+            vendors.update(snap.vendors)
+            aliases.update(snap.port_names)
+        self.port_aliases = aliases
+        threshold = self.settings.uplink_mac_threshold
+        self.suspect_ports = {k: len(v) for k, v in port_macs.items() if len(v) > threshold and k not in uplinks}
+
+        out: dict[str, Observed] = {}
+        for mac in set(entries) | set(addrs):
+            o = Observed(mac)
+            cands = entries.get(mac, [])
+            if cands:
+                def rank(c: tuple[PortEntry, str]) -> tuple[int, int]:
+                    key = (c[0].switch, c[0].port)
+                    return (1 if key in uplinks else 0, len(port_macs[key]))
+                best, src = min(cands, key=rank)
+                key = (best.switch, best.port)
+                o.switch, o.port, o.vlan = best.switch, best.port, best.vlan
+                o.port_mac_count = len(port_macs[key])
+                o.behind_uplink = key in uplinks or o.port_mac_count > threshold
+                o.sources.update(s for _, s in cands)
+                o.live = True
+            alist = sorted(addrs.get(mac, []), key=lambda a: ORIGIN_RANK.get(a[0].origin, 9))
+            if alist:
+                o.ip = alist[0][0].ip
+                o.live = o.live or any(a.origin == "arp" for a, _ in alist)
+                o.sources.update(s for _, s in alist)
+                for a, _ in alist:
+                    if a.origin == "dhcp" and a.ip == o.ip and a.dynamic:
+                        o.dhcp = True
+                for origin in ("dhcp", "netdisco"):
+                    host = next((a.hostname for a, _ in alist if a.origin == origin and a.hostname and a.ip == o.ip), None)
+                    if host:
+                        o.hostname, o.hostname_source = host, origin
+                        break
+            if not o.hostname and o.ip:
+                cached = self._dns_cache.get(o.ip)
+                if cached and cached[1]:
+                    o.hostname, o.hostname_source = cached[1], "dns"
+            o.vendor = vendors.get(mac) or self.oui.lookup(mac)
+            out[mac] = o
+        return out
+
+    async def _resolve_missing(self, ips: list[str]) -> bool:
+        """Reverse-resolve addresses without a hostname. Returns True if new names were found."""
+        t = time.time()
+
+        def lookup(ip: str) -> str | None:
+            try:
+                return socket.gethostbyaddr(ip)[0]
+            except OSError:
+                return None
+
+        found = False
+        for i in range(0, len(ips), 32):
+            batch = ips[i:i + 32]
+            names = await asyncio.gather(*(asyncio.to_thread(lookup, ip) for ip in batch))
+            for ip, n in zip(batch, names):
+                found = found or (n is not None and self._dns_cache.get(ip, (0, None))[1] != n)
+                self._dns_cache[ip] = (t, n)
+        return found
+
+    def _schedule_dns(self, observed: dict[str, Observed]) -> None:
+        """Look up missing names in the background; slow or failing DNS must not delay the merge."""
+        if not self.reverse_dns or (self._dns_task and not self._dns_task.done()):
+            return
+        t = time.time()
+        todo = sorted({o.ip for o in observed.values() if o.ip and not o.hostname
+                       and (o.ip not in self._dns_cache or t - self._dns_cache[o.ip][0] > 3600)})
+        if not todo:
+            return
+
+        async def run() -> None:
+            if await self._resolve_missing(todo):
+                await self.merge()
+
+        self._dns_task = asyncio.create_task(run(), name="reverse-dns")
+
+    async def merge(self) -> None:
+        async with self._merge_lock:
+            observed = self.compute()
+            changed = await asyncio.to_thread(self._persist, observed)
+            self.last_merge = time.time()
+        self._schedule_dns(observed)
+        if changed:
+            self.publish({"type": "refresh"})
+
+    def _persist(self, observed: dict[str, Observed]) -> bool:
+        t = now()
+        changed = False
+        with self.db.session() as s:
+            existing = {x.mac: x for x in s.scalars(select(Sighting))}
+            known = dict(s.execute(select(Interface.mac, Interface.device_id)).all())
+            first_run = not existing
+            if first_run and observed:
+                s.add(EventLog(kind="discovery", message=f"Initial discovery: {len(observed)} MAC addresses"))
+            for mac, o in observed.items():
+                row = existing.get(mac)
+                dev = known.get(mac)
+                if row is None:
+                    row = Sighting(mac=mac, first_seen=t, last_seen=t if o.live else 0, online=o.live,
+                                   port_since=t if o.port else None)
+                    s.add(row)
+                    changed = True
+                    if o.live and not first_run:
+                        what = "Known device back on the network" if dev else "New device on the network"
+                        s.add(EventLog(kind="online" if dev else "new", mac=mac, device_id=dev,
+                                       message=f"{what}: {mac} {o.ip or ''} {_where(o)}".strip(), data=_ev(o)))
+                elif o.live:
+                    if not row.online:
+                        changed = True
+                        s.add(EventLog(kind="online", mac=mac, device_id=dev,
+                                       message=f"Back online: {mac} {o.ip or ''} {_where(o)}".strip(), data=_ev(o)))
+                    if o.port and (row.switch, row.port) != (o.switch, o.port):
+                        if row.port:
+                            s.add(EventLog(kind="moved", mac=mac, device_id=dev,
+                                           message=f"Moved: {mac} from {row.switch} {row.port} to {_where(o)}",
+                                           data={**_ev(o), "from_switch": row.switch, "from_port": row.port}))
+                        row.port_since = t
+                        changed = True
+                    if o.ip and row.ip and o.ip != row.ip:
+                        s.add(EventLog(kind="ip_changed", mac=mac, device_id=dev,
+                                       message=f"New address: {mac} {row.ip} -> {o.ip}", data={**_ev(o), "from_ip": row.ip}))
+                        changed = True
+                before = (row.ip, row.hostname, row.switch, row.port, row.online, row.vendor, row.dhcp)
+                if o.port:
+                    row.switch, row.port, row.vlan = o.switch, o.port, o.vlan
+                    row.port_mac_count, row.behind_uplink = o.port_mac_count, o.behind_uplink
+                row.ip = o.ip or row.ip
+                if o.hostname:
+                    row.hostname, row.hostname_source = o.hostname, o.hostname_source
+                row.vendor = o.vendor or row.vendor
+                row.dhcp = o.dhcp
+                row.sources = sorted(o.sources)
+                if o.live:
+                    row.online = True
+                    row.last_seen = t
+                if before != (row.ip, row.hostname, row.switch, row.port, row.online, row.vendor, row.dhcp):
+                    changed = True
+            for mac, row in existing.items():
+                o = observed.get(mac)
+                if row.online and not (o and o.live) and t - row.last_seen > self.settings.offline_after:
+                    row.online = False
+                    changed = True
+                    s.add(EventLog(kind="offline", mac=mac, device_id=known.get(mac),
+                                   message=f"Offline: {mac} {row.ip or ''}, last seen on {row.switch or '?'} {row.port or ''}".strip()))
+        return changed
+
+
+def _where(o: Observed) -> str:
+    return f"on {o.switch} {o.port}" if o.port else ""
+
+
+def _ev(o: Observed) -> dict[str, Any]:
+    return {"ip": o.ip, "switch": o.switch, "port": o.port, "hostname": o.hostname, "vendor": o.vendor}

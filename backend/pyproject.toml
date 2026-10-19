@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=75"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "deskside"
+version = "0.1.0.dev0"
+description = "Self-hosted device overview for support work"
+license = "Apache-2.0"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.146",
+    "uvicorn[standard]>=0.54",
+    "sqlalchemy>=2.1",
+    "pysnmp>=7.1.30",
+    "httpx>=0.28",
+    "pyyaml>=6.0",
+    "pywinrm>=0.5",
+    "itsdangerous>=2.2",
+]
+
+[project.optional-dependencies]
+test = ["pytest>=8"]
+
+[project.scripts]
+deskside = "deskside.main:run"
+
+[tool.setuptools.packages.find]
+include = ["deskside*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.setuptools.package-data]
+deskside = ["static/*", "static/assets/*"]
