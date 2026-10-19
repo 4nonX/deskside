@@ -110,6 +110,12 @@ class Graph:
         e.update({k: v for k, v in extra.items() if v is not None})
         self.edges.append(e)
 
+    def _place(self, switch_node: str, port: str | None) -> dict[str, Any] | None:
+        """Where a port leads by the cabling in NetBox (patch panel, far-end device, room), for the label."""
+        if not port or self.nb is None or not hasattr(self.nb, "port_place"):
+            return None
+        return self.nb.port_place(self.nodes[switch_node]["name"], port)
+
     @staticmethod
     def _is_switch_kind(kind: str) -> bool:
         return "switch" in (kind or "").lower()
@@ -364,13 +370,14 @@ class Graph:
             if self.nodes[key]["type"] == "unknown" and len(unknown_at[(parent, port)]) > GROUP_UNKNOWN_OVER:
                 continue
             self._edge(parent, key, kind, label=port,
-                       alias=self.aliases.get((self.nodes[parent]["name"], port)) if port else None)
+                       alias=self.aliases.get((self.nodes[parent]["name"], port)) if port else None,
+                       place=self._place(parent, port))
         for (parent, port), keys in unknown_at.items():
             if len(keys) > GROUP_UNKNOWN_OVER:
                 gid = f"g:{parent}:{port or ''}"
                 self.nodes[gid] = {"id": gid, "type": "group", "device_id": None, "online": True,
                                    "members": [self.nodes.pop(k) for k in keys]}
-                self._edge(parent, gid, "port" if port else "behind", label=port)
+                self._edge(parent, gid, "port" if port else "behind", label=port, place=self._place(parent, port))
 
         # Management interfaces: a thin second line, the device stays where its data port is.
         for dev_id in set(mgmt_seen) | set(self.mgmt_doc):

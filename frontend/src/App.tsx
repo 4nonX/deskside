@@ -4,6 +4,7 @@ import { ago, t } from "./i18n";
 import { IconPin, IconSearch } from "./icons";
 import { Card } from "./Card";
 import type { Selection } from "./fields";
+import { where } from "./portplace";
 import { SourcesView, UsersView } from "./Views";
 import { EventsPage } from "./HistoryView";
 import { DirectoryView } from "./Directory";
@@ -234,10 +235,13 @@ function DeviceTable({ rows, selected, onSelect }: { rows: Row[]; selected: Sele
             <td><Copyable value={r.ip} mono /></td>
             <td><Copyable value={r.mac} mono /></td>
             <td>
-              {r.parent ? <span className="sub">{t("card.attachedto")} {r.parent}</span> : r.port && (
-                <span className={r.behind_uplink ? "port behind" : "port"}>{r.switch} {r.port}</span>
-              )}
-              {r.port_alias && <div className="sub">{r.port_alias}</div>}
+              {r.parent ? <span className="sub">{t("card.attachedto")} {r.parent}</span> : r.port && (() => {
+                const w = where(r.switch, r.port, r.port_place, r.name, r.port_alias, r.behind_uplink);
+                return <>
+                  <span className={r.behind_uplink ? "port behind" : "port"} title={`${r.switch} ${r.port}`}>{w.main}</span>
+                  {w.sub && <div className="sub">{w.sub}</div>}
+                </>;
+              })()}
             </td>
             <td>
               {r.macs.length > 0 && (

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { portName, where } from "./portplace";
 import { ApiError, api, type DeviceCard, type EventItem, type Me, type NetInfo, type Row, type UnknownCard } from "./api";
 import { ago, datetime, t } from "./i18n";
 import { IconClose, IconEdit, IconPin, IconPlus, IconTrash, IconWarn } from "./icons";
@@ -201,8 +202,10 @@ function Connection({ d, onSelect }: { d: DeviceCard; onSelect: (s: Selection) =
     <section className="tight">
       <h3>{t("card.connection")}</h3>
       <div className="chain">
-        <span className="node"><Icon name="switch-horizontal" size={15} /> {seg.switch} {seg.port}{seg.alias ? ` · ${seg.alias}` : ""}</span>
-        {via && <><span className="arrow">→</span><span className="node">{via}</span></>}
+        <span className="node" title={`${seg.switch} ${seg.port}`}><Icon name="switch-horizontal" size={15} /> {seg.switch} · {portName(seg.port)}{seg.alias ? ` · ${seg.alias}` : ""}</span>
+        {(via || seg.place?.panel) && <><span className="arrow">→</span><span className="node">{via || seg.place?.panel}</span></>}
+        {seg.place?.room && <><span className="arrow">→</span><span className="node"><Icon name="door" size={15} /> {seg.place.room}</span></>}
+        {seg.place && !seg.place.documented && <><span className="arrow">→</span><span className="node dashed">{t("place.unknown")}</span></>}
         {(seg.behind_uplink || seg.peers.length > 0) && (
           <><span className="arrow">→</span><span className="node dashed">{t("card.unmanaged", { n: seg.port_mac_count ?? seg.peers.length + 1 })}</span></>
         )}
@@ -295,7 +298,10 @@ function NetTable({ n, mac }: { n: NetInfo; mac: string }) {
     [t("card.mac"), <Copyable value={mac} mono />],
     [t("card.hostname"), n.hostname && <Copyable value={n.hostname} mono />],
     [t("card.vendor"), n.vendor],
-    [t("card.port"), n.port && <>{n.switch} {n.port}{n.port_alias ? ` (${n.port_alias})` : ""}</>],
+    [t("card.port"), n.port && (() => {
+      const w = where(n.switch, n.port, n.port_place, null, n.port_alias, n.behind_uplink);
+      return <>{w.main}{w.sub && <span className="sub"> · {w.sub}</span>}</>;
+    })()],
     [t("card.vlan"), n.vlan],
     [t("card.addressing"), n.ip ? (n.dhcp ? t("card.dhcp") : t("card.fixed")) : null],
     [t("col.seen"), <><span className={n.online ? "dot on" : "dot"} />
@@ -388,7 +394,8 @@ function UnknownView({ u, canEdit, onSelect }: { u: UnknownCard; canEdit: boolea
         {u.ip && <Fact label={t("card.ip")} value={u.ip} mono />}
         <Fact label={t("card.mac")} value={u.mac} mono />
         {u.hostname && <Fact label={t("card.hostname")} value={u.hostname} mono />}
-        {u.port && <Fact label={t("card.port")} value={`${u.switch} ${u.port}`} />}
+        {u.port && <Fact label={t("card.portplace")} value={where(u.switch, u.port, u.port_place, null, null, u.behind_uplink).main} />}
+        {u.port && <Fact label={t("card.port")} value={`${u.switch} · ${portName(u.port)}`} />}
       </div>
       {canEdit && (
         <section className="adopt">

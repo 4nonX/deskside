@@ -1,3 +1,4 @@
+import type { PortPlace } from "./portplace";
 // Thin client for the deskside API. Every call goes through `request` so errors look the same everywhere.
 
 export type Role = "viewer" | "editor" | "admin";
@@ -13,6 +14,7 @@ export interface NetInfo {
   port?: string | null;
   vlan?: number | null;
   port_alias?: string | null;
+  port_place?: PortPlace | null;
   port_mac_count?: number | null;
   behind_uplink?: boolean;
   dhcp?: boolean;
@@ -47,7 +49,7 @@ export interface DeviceBrief { id: number; name: string; kind: string; icon: str
 export interface Peripheral extends DeviceBrief { connection: string; manufacturer: string; model: string; serial: string; children: number }
 export interface SegmentPeer { type: "device" | "unknown"; id?: number; name: string | null; kind?: string; icon?: string; mac?: string; ip?: string | null; vendor?: string | null }
 export interface Segment {
-  switch: string; port: string; alias: string | null; port_mac_count: number | null; behind_uplink: boolean;
+  switch: string; port: string; alias: string | null; place?: PortPlace | null; port_mac_count: number | null; behind_uplink: boolean;
   online: boolean; peers: SegmentPeer[];
 }
 export interface KindItem { kind: string; icon: string; devices: number }
@@ -58,7 +60,7 @@ export interface GraphNode {
 }
 export interface GraphEdge {
   id: string; source: string; target: string; kind: "link" | "uplink" | "port" | "behind" | "inferred" | "virtual" | "attached" | "wan" | "mgmt" | "vpn";
-  label: string | null; target_label?: string; alias?: string; via?: string;
+  label: string | null; target_label?: string; alias?: string; via?: string; place?: PortPlace | null;
 }
 export interface GraphRack {
   id: string; name: string; location: string | null;

@@ -222,6 +222,36 @@ class Netbox:
                 return hit
         return None
 
+    def port_place(self, switch: str | None, port: str | None) -> dict[str, Any] | None:
+        """Where a switch port leads by the documented cabling: patch panel, the device at the far end, its room.
+
+        None when NetBox does not know the switch at all; ``documented: False`` when it knows the switch but
+        no cable on that port.
+        """
+        if not (switch and port) or not self.switch_ports:
+            return None
+        sw = self.switch_port(switch, port)
+        if sw is None:
+            known = any(k[0] == switch.lower() for k in self.switch_ports)
+            return {"documented": False} if known else None
+        panel = None
+        if sw.peer_type == "dcim.frontport" and sw.peers:
+            p = sw.peers[0]
+            panel = f"{(p.get('device') or {}).get('name', '')} {p.get('name', '')}".strip() or None
+        end = next((e for e in sw.endpoints or [] if e.get("device")), None)
+        name = room = None
+        via_switch = False
+        if end is not None:
+            dev = end["device"]
+            role = (((self.devices.get(dev.get("id")) or {}).get("role") or {}).get("name") or "").lower()
+            via_switch = "switch" in role
+            m = self.name_rx.match(dev.get("name") or "")
+            name = (m.group("name") if m else dev.get("name")) or None
+            room = ((self.devices.get(dev.get("id")) or {}).get("location") or {}).get("name")
+        if not (panel or name):
+            return {"documented": False}
+        return {"documented": True, "panel": panel, "endpoint": name, "room": room, "switch": via_switch}
+
     def device_for(self, name: str, macs: list[str], external_id: str | None = None) -> int | None:
         if external_id and external_id.startswith("netbox:device:"):
             return int(external_id.rsplit(":", 1)[1])

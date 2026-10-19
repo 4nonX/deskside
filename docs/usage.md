@@ -44,6 +44,12 @@ In the tabs: **Details** (users, room and department, device data, network detai
 
 **History** shows where the device was plugged in and which addresses it had, as a timeline with durations ("GigabitEthernet7, 12.10. – now, 7 days"), followed by its events. That answers "was this PC on the network last Tuesday, and where?" without digging through switch logs.
 
+## Where a device is
+
+The connection column, the device card and the network map name the place first and the switch port second, for example "Lab 2" with "core-sw · Port 7 · patch panel 1 F11" beneath it. The place comes from the cabling in NetBox: from the switch port through the patch panel to the device at the far end and its location. A device on a port that leads to another switch or a host is shown as "behind core-sw2". Where NetBox knows the switch but no cable on that port, deskside says "socket not documented" instead of guessing. Without NetBox, you see the switch and port.
+
+Management ports (iLO, iDRAC, interfaces NetBox marks management-only) are never used as a device's main address or position.
+
 ## Addresses that only a DHCP lease knows
 
 Phones and laptops with "private Wi-Fi address" turned on use a new random MAC address per network, and every one of them gets its own lease, valid for days after the device left. deskside does not list addresses that only appear in leases and were never seen in a switch or ARP table under **All**; they have their own filter, **Only in DHCP leases**, and a search still finds them. Names from reverse DNS are only used for addresses that are on the network right now, because a PTR record for a pool address often still names an earlier device.

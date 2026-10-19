@@ -111,25 +111,32 @@ def me(user: User = Depends(current_user)) -> dict[str, Any]:
 
 # --- device list and search -----------------------------------------------------------------
 
-def _sighting_dict(sg: Sighting | None, aliases: dict) -> dict[str, Any]:
+def _sighting_dict(sg: Sighting | None, ports: Any) -> dict[str, Any]:
     if sg is None:
         return {"online": False}
     return {
         "mac": sg.mac, "ip": sg.ip, "hostname": sg.hostname, "hostname_source": sg.hostname_source,
         "vendor": sg.vendor, "switch": sg.switch, "port": sg.port, "vlan": sg.vlan,
-        "port_alias": aliases.get((sg.switch, sg.port)), "port_mac_count": sg.port_mac_count,
+        "port_alias": ports.port_alias(sg.switch, sg.port), "port_place": ports.port_place(sg.switch, sg.port),
+        "port_mac_count": sg.port_mac_count,
         "behind_uplink": sg.behind_uplink, "dhcp": sg.dhcp, "online": sg.online,
         "first_seen": sg.first_seen, "last_seen": sg.last_seen or None, "port_since": sg.port_since,
         "sources": sg.sources,
     }
 
 
-def _primary(sightings: list[Sighting]) -> Sighting | None:
-    """The interface shown in the list: online first, then most recently seen."""
-    return max(sightings, key=lambda x: (x.online, x.last_seen), default=None)
+def _primary(sightings: list[Sighting], mgmt: set[str] | frozenset[str] = frozenset()) -> Sighting | None:
+    """The interface shown in the list: online first, not a management port (iLO, iDRAC), most recently seen."""
+    return max(sightings, key=lambda x: (x.online, x.mac not in mgmt, x.last_seen), default=None)
 
 
-def build_rows(s: Session, aliases: dict, contacts: bool) -> list[dict[str, Any]]:
+def mgmt_macs(ports: Any, d: Device) -> set[str]:
+    """MAC addresses of a device's management interfaces, by the interface names NetBox marks management-only."""
+    names = ports.mgmt_names() if hasattr(ports, "mgmt_names") else set()
+    return {i.mac for i in d.interfaces if (i.label or "").lower() in names}
+
+
+def build_rows(s: Session, ports: Any, contacts: bool) -> list[dict[str, Any]]:
     sightings = {x.mac: x for x in s.scalars(select(Sighting))}
     rows: list[dict[str, Any]] = []
     owned: set[str] = set()
@@ -149,7 +156,7 @@ def build_rows(s: Session, aliases: dict, contacts: bool) -> list[dict[str, Any]
         sgs = [sightings[m] for m in macs if m in sightings]
         links = sorted(d.people, key=lambda dp: (not dp.is_primary, dp.person.display_name.lower()))
         row = {"type": "device", "id": d.id, "name": d.name, "kind": d.kind, "description": d.description,
-               **_sighting_dict(_primary(sgs), aliases), "macs": macs,
+               **_sighting_dict(_primary(sgs, mgmt_macs(ports, d)), ports), "macs": macs,
                "pinned": [n.text for n in d.notes if n.pinned],
                "icon": d.icon, "parent_id": d.parent_id, "parent": names.get(d.parent_id) if d.parent_id else None,
                "children": child_count.get(d.id, 0), "manufacturer": d.manufacturer, "model": d.model,
@@ -173,7 +180,7 @@ def build_rows(s: Session, aliases: dict, contacts: bool) -> list[dict[str, Any]
         rows.append(row)
     for mac, sg in sightings.items():
         if mac not in owned:
-            rows.append({"type": "unknown", "id": None, "name": None, "kind": "", **_sighting_dict(sg, aliases),
+            rows.append({"type": "unknown", "id": None, "name": None, "kind": "", **_sighting_dict(sg, ports),
                          "macs": [mac], "pinned": [], "room": None, "department": None, "people": [],
                          "icon": "", "parent_id": None, "parent": None, "children": 0})
     for r in rows:
@@ -186,7 +193,7 @@ def build_rows(s: Session, aliases: dict, contacts: bool) -> list[dict[str, Any]
 def list_devices(request: Request, q: str | None = None, show: str = "all",
                  user: User = Depends(current_user)) -> dict[str, Any]:
     with _db(request).session() as s:
-        rows = build_rows(s, _engine(request).port_aliases, _contacts_ok(request, user))
+        rows = build_rows(s, _engine(request), _contacts_ok(request, user))
     # Addresses that only a DHCP lease knows about and that no switch or ARP table ever showed: mostly
     # phones and laptops with a new random MAC per network, valid for days after they left. Kept out of
     # the default list (a search still finds them) and available under their own filter.
@@ -227,7 +234,7 @@ def _events_for(s: Session, macs: list[str], device_id: int | None, limit: int =
 @router.get("/devices/{device_id}")
 def get_device(device_id: int, request: Request, user: User = Depends(current_user)) -> dict[str, Any]:
     from .api_remote import device_remote  # local import: api_remote builds on this module
-    aliases = _engine(request).port_aliases
+    ports = _engine(request)
     contacts = _contacts_ok(request, user)
     with _db(request).session() as s:
         d = s.get(Device, device_id)
@@ -245,14 +252,14 @@ def get_device(device_id: int, request: Request, user: User = Depends(current_us
             "children": [{**_brief(c), "connection": c.connection, "manufacturer": c.manufacturer, "model": c.model,
                           "serial": c.serial, "children": len(c.children)}
                          for c in sorted(d.children, key=lambda c: (c.kind.lower(), c.name.lower()))],
-            "segment": _segment(s, d, sightings, aliases),
+            "segment": _segment(s, d, sightings, ports),
             "room": _room_dict(d.room),
             "department": {"id": d.department.id, "name": d.department.name} if d.department else None,
             "people": [{"link_id": dp.id, "primary": dp.is_primary, **_person_dict(dp.person, contacts)} for dp in links],
             "contacts_visible": contacts,
             "naming_warnings": naming.check(_conventions(request), d.name, d.kind, ips),
             "interfaces": [{"id": i.id, "mac": i.mac, "label": i.label, "expected_ip": i.expected_ip,
-                            **{k: v for k, v in _sighting_dict(sightings.get(i.mac), aliases).items() if k != "mac"}}
+                            **{k: v for k, v in _sighting_dict(sightings.get(i.mac), ports).items() if k != "mac"}}
                            for i in d.interfaces],
             "notes": [{"id": n.id, "text": n.text, "pinned": n.pinned, "author": n.author,
                        "created_at": n.created_at, "updated_at": n.updated_at} for n in d.notes],
@@ -279,7 +286,7 @@ def get_mac(mac: str, request: Request, user: User = Depends(current_user)) -> d
         sg = s.get(Sighting, m)
         if sg is None:
             raise HTTPException(404, "This MAC address has not been seen.")
-        return {"type": "unknown", "mac": m, **_sighting_dict(sg, _engine(request).port_aliases),
+        return {"type": "unknown", "mac": m, **_sighting_dict(sg, _engine(request)),
                 "suggested_name": naming.suggest(_conventions(request), sg.hostname),
                 "events": _events_for(s, [m], None)}
 
@@ -331,9 +338,9 @@ def _check_parent(s: Session, d: Device, parent_id: int) -> None:
         p = p.parent
 
 
-def _segment(s: Session, d: Device, sightings: dict[str, Sighting], aliases: dict) -> dict[str, Any] | None:
+def _segment(s: Session, d: Device, sightings: dict[str, Sighting], ports: Any) -> dict[str, Any] | None:
     """Where the device is plugged in, and who else is on the same switch port."""
-    sg = _primary(list(sightings.values()))
+    sg = _primary(list(sightings.values()), mgmt_macs(ports, d))
     if sg is None or not sg.port:
         return None
     own = {i.mac for i in d.interfaces}
@@ -350,7 +357,8 @@ def _segment(s: Session, d: Device, sightings: dict[str, Sighting], aliases: dic
                 peers.append({"type": "device", **_brief(dev), "ip": x.ip})
         else:
             peers.append({"type": "unknown", "mac": x.mac, "name": x.hostname, "ip": x.ip, "vendor": x.vendor})
-    return {"switch": sg.switch, "port": sg.port, "alias": aliases.get((sg.switch, sg.port)),
+    return {"switch": sg.switch, "port": sg.port, "alias": ports.port_alias(sg.switch, sg.port),
+            "place": ports.port_place(sg.switch, sg.port),
             "port_mac_count": sg.port_mac_count, "behind_uplink": sg.behind_uplink, "online": sg.online, "peers": peers}
 
 

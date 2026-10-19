@@ -211,6 +211,19 @@ class Engine:
                 log.exception("housekeeping failed")
 
     # --- live updates ------------------------------------------------------------------------
+    def port_alias(self, switch: str | None, port: str | None) -> str | None:
+        return self.port_aliases.get((switch, port)) if switch and port else None
+
+    def mgmt_names(self) -> set[str]:
+        """Names of interfaces NetBox marks management-only (iLO, iDRAC, mgmt0), lower case."""
+        if not self.netbox:
+            return set()
+        return {i.name.lower() for i in self.netbox.ifaces.values() if i.mgmt}
+
+    def port_place(self, switch: str | None, port: str | None) -> dict[str, Any] | None:
+        """Where a switch port leads, if NetBox documents it. See Netbox.port_place."""
+        return self.netbox.port_place(switch, port) if self.netbox else None
+
     def subscribe(self) -> asyncio.Queue[dict[str, Any]]:
         q: asyncio.Queue[dict[str, Any]] = asyncio.Queue(maxsize=100)
         self._subscribers.add(q)

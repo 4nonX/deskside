@@ -8,6 +8,7 @@ import { api, type GraphEdge, type GraphNode, type GraphRack, type NetGraph } fr
 import { t } from "./i18n";
 import { Icon, useIconFor } from "./iconset";
 import type { Selection } from "./fields";
+import { portName } from "./portplace";
 
 const W = 236, H = 52, ROW = 21, CHIP = 26;
 const INDENT = 22, GAP_X = 18, GAP_Y = 10, RANK = 56, SUBTREE_GAP = 44;
@@ -16,10 +17,6 @@ type NodeData = {
   n: GraphNode; inner: GraphNode[]; hits: Set<string>; dim: boolean; hidden: number; open: boolean; port: string;
   icon: string; iconFor: (n: GraphNode) => string; onToggle: (id: string) => void; onOpen: (s: Selection) => void;
 };
-
-function shortPort(p: string | null | undefined): string {
-  return (p ?? "").replace(/^GigabitEthernet/i, "GE").replace(/^TenGigabitEthernet/i, "XGE").replace(/^FastEthernet/i, "FE");
-}
 
 function haystack(n: GraphNode): string {
   return [n.name, n.ip, n.mac, n.kind, n.vendor, ...(n.members ?? []).map(haystack)].filter(Boolean).join(" ").toLowerCase();
@@ -144,13 +141,21 @@ function edgeStyle(e: GraphEdge): Partial<Edge> {
   }
 }
 
-function portText(e: GraphEdge | undefined): string {
+function portText(e: GraphEdge | undefined, self?: string | null): string {
   if (!e) return "";
-  if (e.kind === "inferred") return [shortPort(e.label), t("map.inferred")].filter(Boolean).join(" · ");
-  if (e.kind === "uplink") return [shortPort(e.target_label), e.alias].filter(Boolean).join(" · ");
+  if (e.kind === "inferred") return [portName(e.label), t("map.inferred")].filter(Boolean).join(" · ");
+  if (e.kind === "uplink") return [portName(e.target_label), e.alias].filter(Boolean).join(" · ");
   if (e.kind === "vpn") return e.via ? t("map.via", { name: e.via }) : "";
   if (e.kind === "attached" || e.kind === "virtual" || e.kind === "wan") return "";
-  return [shortPort(e.label), e.alias].filter(Boolean).join(" · ");
+  if (e.kind === "link") return [portName(e.label), e.alias].filter(Boolean).join(" · ");
+  // A device on a switch port: where that port leads (room, the desk it serves), then the port.
+  const p = e.place;
+  if (p?.documented && p.switch && p.endpoint) return [t("place.behind", { name: p.endpoint }), portName(e.label)].join(" · ");
+  if (p?.documented) {
+    const at = p.endpoint && p.endpoint.toLowerCase() !== (self ?? "").toLowerCase() ? t("place.at", { name: p.endpoint }) : "";
+    return [at, p.room, portName(e.label)].filter(Boolean).join(" · ");
+  }
+  return [portName(e.label), p && !p.documented ? t("place.unknownShort") : "", e.alias].filter(Boolean).join(" · ");
 }
 
 function natural(a: string, b: string): number {
@@ -322,7 +327,7 @@ function layout(nodes: Node<NodeData>[], edges: GraphEdge[], racks: GraphRack[])
     .sort((a, b) => rank(a) - rank(b) || (kids.get(b)?.length ?? 0) - (kids.get(a)?.length ?? 0) || natural(label(a), label(b)));
   let x = 0;
   for (const r of roots) { const box = measure(r); box.place(x, top, []); x += box.w + SUBTREE_GAP * 2; }
-  for (const [child, e] of parentEdge) byId.get(child)!.data.port = portText(e);
+  for (const [child, e] of parentEdge) byId.get(child)!.data.port = portText(e, byId.get(child)!.data.n.name);
   const placed = nodes.map((n) => ({ ...n, position: pos.get(n.id) ?? { x: 0, y: 0 } }));
   return { nodes: [...extra, ...placed] as Node[], routes, parentEdge, right };
 }
@@ -389,7 +394,7 @@ function Diagram({ graph, q, onOpen, showAll }: { graph: NetGraph; q: string; on
       return {
         id: e.id, source: e.source, target: e.target, ...edgeStyle(e), type: route ? "poly" : "side", data: route,
         sourceHandle: "right", targetHandle: "right-in",
-        label: inTree ? undefined : [shortPort(e.label), e.kind === "mgmt" ? t("map.mgmt") : ""].filter(Boolean).join(" · "),
+        label: inTree ? undefined : [portName(e.label), e.kind === "mgmt" ? t("map.mgmt") : ""].filter(Boolean).join(" · "),
       };
     });
     return { nodes: laid.nodes, edges: es, focus: [...focus] };

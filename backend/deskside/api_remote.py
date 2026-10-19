@@ -10,7 +10,7 @@ from fastapi.responses import Response
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 
-from .api import _audit, _db, _engine, _primary
+from .api import _audit, _db, _engine, _primary, mgmt_macs
 from .auth import current_user, require
 from .db import Device, RemoteAccess, Sighting, User
 from .remote import RemoteError, Tool, render_link, render_rdp
@@ -26,7 +26,7 @@ def device_remote(request: Request, s, d: Device) -> list[dict[str, Any]]:
     """Buttons for a device: its own entries, then automatic ones for its kind."""
     tools = _tools(request)
     sightings = list(s.scalars(select(Sighting).where(Sighting.mac.in_([i.mac for i in d.interfaces]))))
-    sg = _primary(sightings)
+    sg = _primary(sightings, mgmt_macs(_engine(request), d))
     host, ip = (sg.hostname, sg.ip) if sg else (None, None)
     out: list[dict[str, Any]] = []
     used: set[str] = set()
@@ -121,7 +121,8 @@ def rdp_file(device_id: int, tool_key: str, request: Request, entry: int | None 
         e = s.get(RemoteAccess, entry) if entry else None
         if e is not None and (e.device_id != d.id or e.tool != tool.key):
             raise HTTPException(404, "No such entry.")
-        sg = _primary(list(s.scalars(select(Sighting).where(Sighting.mac.in_([i.mac for i in d.interfaces])))))
+        sg = _primary(list(s.scalars(select(Sighting).where(Sighting.mac.in_([i.mac for i in d.interfaces])))),
+                      mgmt_macs(_engine(request), d))
         try:
             body = render_rdp(tool, value=e.value if e else None, user=e.username if e else None,
                               hostname=sg.hostname if sg else None, ip=sg.ip if sg else None)

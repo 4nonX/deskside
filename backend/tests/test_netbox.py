@@ -244,3 +244,14 @@ def test_import_hosts_and_virtual_machines(setup):
         assert [i.mac for i in devs["hv1"].interfaces] == ["00:00:5E:00:53:30"]
         assert [i.mac for i in devs["files"].interfaces] == ["00:00:5E:00:53:62"] and devs["files"].kind == "VM"
         assert devs["files"].parent.name == "hv1"                  # found through the cluster
+
+
+def test_port_place_follows_the_cabling(setup):
+    db, nb, fake = setup
+    fake.ifaces[0].update(link_peers_type="dcim.frontport", link_peers=[{"id": 40, "name": "F1", "device": {"name": "patch-1"}}],
+                          connected_endpoints=[{"id": 20, "name": "LAN", "device": {"id": 2, "name": "WS09-Client-PC"}}])
+    assert asyncio.run(nb.sync()), nb.state.error
+    assert nb.port_place("core-sw", "GigabitEthernet7") == {"documented": True, "panel": "patch-1 F1", "endpoint": "WS09",
+                                                            "room": "Lab", "switch": False}
+    assert nb.port_place("core-sw", "GigabitEthernet12") == {"documented": False}     # known switch, no cable
+    assert nb.port_place("other-sw", "Gi1") is None                                   # NetBox does not know it
