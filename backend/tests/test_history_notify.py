@@ -30,9 +30,10 @@ def engine(tmp_path):
     return Engine(s, db)
 
 
-def feed(engine, ports=(), addrs=()):
-    engine.state.setdefault("t", SourceState("t", "test", 60))
-    engine.snapshots["t"] = Snapshot(ports=list(ports), addresses=list(addrs))
+def feed(engine, ports=(), addrs=(), source="t"):
+    st = engine.state.setdefault(source, SourceState(source, "test", 60))
+    st.last_run = st.last_ok = 1.0
+    engine.snapshots[source] = Snapshot(ports=list(ports), addresses=list(addrs))
     engine._persist(engine.compute())
 
 
@@ -143,3 +144,21 @@ def test_config_validation_and_digest_cap():
             Notifier(bad)
     subject, body = render_text([ev("new", f"New {i}") for i in range(55)], None)
     assert subject == "55 network events: 55 new" and body.endswith("… and 15 more")
+
+
+def test_busy_ports_known_at_start_are_not_reported(engine):
+    others = [PortEntry("core", "Gi2", f"00:00:5E:00:53:{i:02X}") for i in range(0x20, 0x24)]
+    feed(engine, [PortEntry("core", "Gi7", A)])                       # first run ever
+    engine2 = Engine(engine.settings, engine.db)                       # a restart with an existing database
+    feed(engine2, [PortEntry("core", "Gi7", A), *others])
+    assert not any(e["kind"] == "busy_port" for e in engine2.drain_events())
+
+
+def test_busy_ports_wait_until_every_source_has_run(engine):
+    from deskside.engine import SourceState
+    engine.state["switch"] = SourceState("switch", "test", 60, last_run=1.0)   # running, not finished yet
+    feed(engine, addrs=[AddressEntry(A, "10.0.10.109", "dhcp")], source="dhcp")   # first run ever
+    feed(engine, addrs=[AddressEntry(A, "10.0.10.109", "dhcp")], source="dhcp")   # switch still missing
+    others = [PortEntry("core", "Gi2", f"00:00:5E:00:53:{i:02X}") for i in range(0x20, 0x24)]
+    feed(engine, [PortEntry("core", "Gi7", A), *others], source="switch")         # first switch data
+    assert not any(e["kind"] == "busy_port" for e in engine.drain_events())

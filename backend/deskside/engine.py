@@ -114,6 +114,7 @@ class Engine:
         self._dns_task: asyncio.Task[None] | None = None
         self._new_events: list[dict[str, Any]] = []
         self._known_busy: set[tuple[str, str]] = set()
+        self._busy_ready = False
         self.conventions = naming.load(settings.naming)
         notif = settings.raw.get("notifications") or []
         self.notifier = Notifier(notif if isinstance(notif, list) else [],
@@ -429,13 +430,18 @@ class Engine:
                         h = open_hist.pop((mac, kind), None)
                         if h is not None:
                             h.end = row.last_seen
-            if not first_run:
+            # The first merge after start only learns which ports are busy; otherwise every restart
+            # would report ports that have been busy for months.
+            if not first_run and self._busy_ready:
                 for key, count in self.suspect_ports.items():
                     if key not in self._known_busy:
                         event("busy_port", None, None,
                               f"{key[0]} {key[1]} now carries {count} MAC addresses without a known neighbour: "
                               f"probably an unmanaged switch or a hypervisor", {"switch": key[0], "port": key[1], "macs": count})
             self._known_busy = set(self.suspect_ports)
+            # Ready once every source has finished at least one run (successfully or not); until then
+            # the picture is incomplete. last_run alone is set when a run starts, which is too early.
+            self._busy_ready = all(st.last_ok or st.error for st in self.state.values())
         if fresh:
             self._new_events.extend(fresh)
         return changed
