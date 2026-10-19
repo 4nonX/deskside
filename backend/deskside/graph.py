@@ -75,6 +75,8 @@ class Graph:
         self.by_name = {d.name.lower(): d for d in self.devices.values()}
         self.mgmt_macs: set[str] = set()
         self.mgmt_doc: dict[int, tuple[str, str]] = {}
+        self.racks: list[dict[str, Any]] = []
+        self._nb_node: Any = None
 
     # --- nodes -------------------------------------------------------------------------------
     def _dev_node(self, d: Dev, **extra: Any) -> str:
@@ -147,8 +149,9 @@ class Graph:
             if is_switch(nb_id):
                 return self._switch_node(nb.devices[nb_id].get("name") or str(nb_id))
             d = nb_to_dev.get(nb_id)
-            return f"d:{d.id}" if d is not None else None
+            return self._dev_node(d) if d is not None else None
 
+        self._nb_node = node
         for i in nb.ifaces.values():
             if i.mgmt or i.device_id not in nb.devices or not is_switch(i.device_id):
                 continue
@@ -377,6 +380,8 @@ class Graph:
             if f"d:{dev_id}" in self.nodes or f"d:{dev_id}" in placed:
                 self._edge(sw, self._dev_node(self.devices[dev_id]), "mgmt", label=port)
 
+        self._build_racks()
+
         # Peripherals and virtual machines hang off the device they belong to.
         def attach(dev: Dev, depth: int = 0) -> None:
             for child in sorted((c for c in self.devices.values() if c.parent_id == dev.id), key=lambda c: c.name.lower()):
@@ -392,7 +397,8 @@ class Graph:
                 if d.parent_id not in self.devices:
                     attach(d)
 
-        connected = {e["source"] for e in self.edges} | {e["target"] for e in self.edges}
+        # A device in a rack has a place even without a cable: it is drawn in its rack.
+        connected = {e["source"] for e in self.edges} | {e["target"] for e in self.edges} |             {i["node"] for r in self.racks for i in r["items"] if i["node"]}
         unplaced = []
         for nid in list(self.nodes):
             n = self.nodes[nid]
@@ -405,4 +411,26 @@ class Graph:
                       "icon": d.icon, "online": False, "ip": None}
                      for d in sorted(self.devices.values(), key=lambda d: d.name.lower())
                      if d.id not in shown and d.parent_id not in self.devices]
-        return {"nodes": list(self.nodes.values()), "edges": self.edges, "unplaced": unplaced}
+        return {"nodes": list(self.nodes.values()), "edges": self.edges, "unplaced": unplaced, "racks": self.racks}
+
+    def _build_racks(self) -> None:
+        """Racks from NetBox with everything mounted in them, top to bottom, passive items included."""
+        nb = self.nb
+        if nb is None or self._nb_node is None:
+            return
+        racks: dict[int, dict[str, Any]] = {}
+        for nb_id, x in nb.devices.items():
+            rack = x.get("rack") or {}
+            if not rack.get("id"):
+                continue
+            r = racks.setdefault(rack["id"], {"id": f"rack:{rack['id']}", "name": rack.get("name") or "",
+                                              "location": (x.get("location") or {}).get("name"), "items": []})
+            nid = self._nb_node(nb_id)
+            if nid is not None:
+                self.nodes[nid]["rack"] = r["id"]
+            r["items"].append({"name": x.get("name") or "", "role": (x.get("role") or {}).get("name") or "",
+                               "position": x.get("position"), "node": nid})
+        for r in racks.values():
+            # Highest unit first, as the rack looks from the front; loose items (on a shelf) at the end.
+            r["items"].sort(key=lambda i: (i["position"] is None, -(i["position"] or 0), i["name"].lower()))
+        self.racks = sorted(racks.values(), key=lambda r: r["name"].lower())

@@ -54,13 +54,17 @@ export interface KindItem { kind: string; icon: string; devices: number }
 export interface GraphNode {
   id: string; type: "device" | "switch" | "unknown" | "group" | "internet" | "vpn"; device_id: number | null; name: string | null;
   kind?: string; icon?: string; online: boolean | null; ip?: string | null; mac?: string; vendor?: string | null;
-  managed?: boolean; uplink_undocumented?: boolean; gateway?: boolean; members?: GraphNode[];
+  managed?: boolean; uplink_undocumented?: boolean; gateway?: boolean; rack?: string; members?: GraphNode[];
 }
 export interface GraphEdge {
   id: string; source: string; target: string; kind: "link" | "uplink" | "port" | "behind" | "inferred" | "virtual" | "attached" | "wan" | "mgmt" | "vpn";
   label: string | null; target_label?: string; alias?: string; via?: string;
 }
-export interface NetGraph { nodes: GraphNode[]; edges: GraphEdge[]; unplaced: GraphNode[] }
+export interface GraphRack {
+  id: string; name: string; location: string | null;
+  items: { name: string; role: string; position: number | null; node: string | null }[];
+}
+export interface NetGraph { nodes: GraphNode[]; edges: GraphEdge[]; unplaced: GraphNode[]; racks?: GraphRack[] }
 
 export interface Room { id: number; number: string; name: string; building: string; floor: string; description: string; devices?: number; source?: string }
 export type RoomInput = Omit<Room, "id" | "devices" | "source">;

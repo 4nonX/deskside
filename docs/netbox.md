@@ -51,6 +51,7 @@ Without NetBox, the map shows what the switches report. With NetBox it also know
 - **Management interfaces** (interfaces marked *management only*, such as iLO or iDRAC) are drawn as a separate thin line. They never decide where a server is.
 - **Virtual machines and their hosts**, see above.
 - **VPN tunnels** (NetBox 3.7 or later) that end on the gateway, shown next to it.
+- **Racks**: every rack with the devices mounted in it, in unit order, including passive items such as patch panels. A device in a rack has its place on the map even without a documented cable.
 
 Nothing on the map is written back to NetBox.
 

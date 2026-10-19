@@ -296,6 +296,15 @@ ul.events.proposals li { grid-template-columns: 90px 150px 1fr auto; align-items
 .gvm.gw .dicon { color: var(--accent); }
 .gvm.hit { outline: 2px solid var(--accent); background: var(--accent-soft); }
 .gvm.off { opacity: .6; }
+.grack { position: relative; width: 100%; height: 100%; box-sizing: border-box; border: 2px solid var(--map-link);
+  border-radius: 10px; background: color-mix(in srgb, var(--bg) 70%, var(--panel)); pointer-events: none; }
+.grack-title { position: absolute; top: 7px; left: 30px; right: 10px; font-weight: 600; font-size: 13px; display: flex; gap: 8px; align-items: baseline; }
+.grack-title span { font-weight: 400; color: var(--muted); font-size: 12px; }
+.grack-row { position: absolute; left: 0; right: 0; }
+.grack-u { position: absolute; left: 4px; width: 22px; top: 50%; transform: translateY(-50%); font-family: var(--mono); font-size: 10.5px; color: var(--muted); text-align: right; }
+.grack-row.passive { left: 30px; right: 30px; border: 1px dashed var(--line); border-radius: 4px; }
+.grack-row.passive .grack-u { left: -26px; }
+.grack-label { position: absolute; left: 8px; top: 50%; transform: translateY(-50%); font-size: 11px; color: var(--muted); white-space: nowrap; }
 .gnode-members { list-style: none; margin: 6px 0 0; padding: 0; font-size: 11.5px; font-family: var(--mono); color: var(--muted); }
 .gnode-members li { height: 21px; line-height: 21px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 @media (prefers-color-scheme: dark) { .gmap { --map-edge: #5b6574; --map-link: #98a2b3; } }

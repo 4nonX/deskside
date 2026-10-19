@@ -102,3 +102,21 @@ def test_switch_placed_by_its_own_management_address():
     g, nodes, edges = build(devs, seen, netbox=nb, options={"internet": False})
     assert edges[("sw:core", "d:9")]["kind"] == "inferred" and edges[("sw:core", "d:9")]["label"] == "GigabitEthernet9"
     assert not [e for e in g["edges"] if e["kind"] == "mgmt" and e["target"] == "d:9"]
+
+
+def test_racks_list_mounted_devices_top_down_including_passive_ones():
+    nb = FakeNb()
+    rack = {"id": 1, "name": "Rack 1"}
+    nb.devices[1].update(rack=rack, position=40.0)
+    nb.devices[12].update(rack=rack, position=20.0)
+    nb.devices[20] = {"name": "patch-1", "role": {"name": "Patch panel"}, "rack": rack, "position": 42.0}
+    nb.devices[21] = {"name": "ups", "role": {"name": "UPS"}, "rack": rack, "position": 1.0}
+    devs = [Dev(3, "hv1", "Hypervisor", macs=[M(0x30)]), Dev(8, "ups", "UPS")]
+    nb.device_for = lambda name, macs, external_id=None: {"hv1": 12, "ups": 21}.get(name.lower())
+    seen = [Seen(M(0x30), "10.0.10.3", "core", "GigabitEthernet32", port_mac_count=1)]
+    g, nodes, edges = build(devs, seen, netbox=nb, options={"internet": False})
+    (r,) = g["racks"]
+    assert [(i["name"], i["node"]) for i in r["items"]] == [
+        ("patch-1", None), ("core", "sw:core"), ("hv1", "d:3"), ("ups", "d:8")]
+    assert nodes["d:8"]["rack"] == "rack:1"            # not cabled, but it has its place in the rack
+    assert "ups" not in [n["name"] for n in g["unplaced"]]

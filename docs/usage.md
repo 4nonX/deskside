@@ -48,6 +48,8 @@ In the tabs: **Details** (users, room and department, device data, network detai
 
 The map starts at the top with the Internet, the WAN device (modem, router) and the gateway. If the gateway is a virtual machine, the hypervisor carrying it stands in that place, drawn as a box with all its virtual machines: a server that runs the firewall is upstream of the LAN, not one device among many. Below it comes the switch the gateway is plugged into, then further switches, and on each switch the devices on its ports.
 
+If NetBox knows your racks, the map draws each rack as one block, the way it looks from the front: devices in their mounting order with the unit number beside them, patch panels and shelves as thin rows, loose items (on a shelf) at the bottom. Cables between devices in the rack run along its left side. What hangs off a rack device, such as the desks on a switch, branches out to the right at the height of that device. Without rack data, the map is drawn as a tree from the Internet down.
+
 How each line comes about:
 
 | Line | Meaning |
