@@ -3,7 +3,7 @@ import { portName, where } from "./portplace";
 import { ApiError, api, type DeviceCard, type EventItem, type Me, type NetInfo, type Row, type UnknownCard } from "./api";
 import { ago, datetime, t } from "./i18n";
 import { IconClose, IconEdit, IconLink, IconPin, IconPlus, IconTrash, IconWarn } from "./icons";
-import { ICON_NAMES, Icon, useIconFor } from "./iconset";
+import { ICON_CHOICES, Icon, iconLabel, useIconFor } from "./iconset";
 import { Copyable, Fact } from "./Copy";
 import { NamingWarnings, NextName, PeopleSection, PlaceSection } from "./Place";
 import { RemoteButton, RemoteSection } from "./Remote";
@@ -200,7 +200,7 @@ function EditHead({ d, wrap, onDone }: { d: DeviceCard; wrap: Wrap; onDone: () =
           <Icon name={iconFor(kind, icon)} size={22} />
           <select value={icon} onChange={(e) => setIcon(e.target.value)}>
             <option value="">{t("card.icontype")}</option>
-            {ICON_NAMES.map((n) => <option key={n} value={n}>{n}</option>)}
+            {ICON_CHOICES.map((n) => <option key={n} value={n}>{iconLabel(n)}</option>)}
           </select>
         </span>
       </label>

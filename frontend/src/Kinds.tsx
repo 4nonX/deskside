@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { ApiError, api, type KindItem } from "./api";
 import { t } from "./i18n";
-import { ICON_NAMES, Icon, useIconFor } from "./iconset";
+import { Icon, iconLabel, matchIcons, useIconFor } from "./iconset";
 
 /** Device types and their icons. Picking an icon applies to every device of that type. */
 export function KindsEditor({ canEdit, onChanged }: { canEdit: boolean; onChanged: () => void }) {
@@ -37,8 +37,8 @@ export function KindsEditor({ canEdit, onChanged }: { canEdit: boolean; onChange
                   {k.icon && <button onClick={() => pick(k.kind, "")}>{t("kinds.reset")}</button>}
                 </div>
                 <div className="icon-grid">
-                  {ICON_NAMES.filter((n) => !filter || n.includes(filter.toLowerCase())).map((n) => (
-                    <button key={n} className={n === k.icon ? "icon-choice active" : "icon-choice"} title={n} onClick={() => pick(k.kind, n)}>
+                  {matchIcons(filter).map((n) => (
+                    <button key={n} className={n === k.icon ? "icon-choice active" : "icon-choice"} title={iconLabel(n)} onClick={() => pick(k.kind, n)}>
                       <Icon name={n} size={22} />
                     </button>
                   ))}

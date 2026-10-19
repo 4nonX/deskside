@@ -12,17 +12,76 @@ export const ICONS: Record<string, string> = Object.fromEntries(
 );
 export const ICON_NAMES = Object.keys(ICONS).sort();
 
+// Readable names and search words per icon: [English, German, more search words]. Icons not listed are found by
+// their file name. Labelled icons come first in pickers, since that is what people look for most.
+const LABELS: Record<string, [string, string, string]> = {
+  "device-desktop": ["Monitor", "Bildschirm", "display screen"],
+  "device-imac": ["Desktop PC", "Arbeitsplatz-PC", "computer client workstation"],
+  "device-laptop": ["Laptop", "Laptop", "notebook macbook thinkpad"],
+  "device-tablet": ["Tablet", "Tablet", "ipad kiosk touch"],
+  "device-mobile": ["Mobile phone", "Handy", "smartphone iphone android mobiltelefon"],
+  "device-landline-phone": ["Desk phone", "Telefon", "sip voip festnetz"],
+  "device-tv": ["TV", "Fernseher", "screen display"],
+  "device-watch": ["Watch", "Uhr", "smartwatch"],
+  "device-speaker": ["Speaker", "Lautsprecher", "audio"],
+  "device-cctv": ["CCTV camera", "Überwachungskamera", "kamera ip camera"],
+  "device-computer-camera": ["Webcam", "Webcam", "kamera"],
+  "device-heart-monitor": ["Medical device", "Medizingerät", "monitor"],
+  "phone": ["Phone", "Telefon", "handy"],
+  "printer": ["Printer", "Drucker", "mfp copier kopierer"],
+  "scan": ["Scanner", "Scanner", ""],
+  "barcode": ["Label printer", "Etikettendrucker", "barcode"],
+  "cash-register": ["Cash register", "Kasse", "pos"],
+  "credit-card": ["Card terminal", "Kartenterminal", "ec payment"],
+  "id-badge-2": ["Time clock", "Zeiterfassung", "terminal badge"],
+  "router": ["Router", "Router", "modem"],
+  "access-point": ["Access point", "Access-Point", "wlan wifi"],
+  "switch-horizontal": ["Switch", "Switch", ""],
+  "server": ["Server", "Server", "hypervisor"],
+  "server-2": ["Server (rack)", "Server (Rack)", "domain controller"],
+  "database": ["Storage", "Speicher", "nas backup"],
+  "shield-lock": ["Firewall", "Firewall", "utm"],
+  "cube": ["Virtual machine", "Virtuelle Maschine", "vm"],
+  "plug-connected": ["Docking station", "Dockingstation", "dock"],
+  "battery-charging": ["UPS", "USV", ""],
+  "keyboard": ["Keyboard", "Tastatur", ""],
+  "mouse": ["Mouse", "Maus", ""],
+  "headset": ["Headset", "Headset", ""],
+  "camera": ["Camera", "Kamera", ""],
+  "presentation": ["Projector", "Beamer", "presentation"],
+  "network": ["Patch panel", "Patchfeld", "network"],
+};
+const GERMAN = (navigator.language || "en").toLowerCase().startsWith("de");
+
+export function iconLabel(name: string): string {
+  const l = LABELS[name];
+  return l ? (GERMAN ? l[1] : l[0]) : name;
+}
+
+/** All icons: the labelled ones first, in label order, then the rest by name. */
+export const ICON_CHOICES = [
+  ...ICON_NAMES.filter((n) => LABELS[n]).sort((a, b) => iconLabel(a).localeCompare(iconLabel(b))),
+  ...ICON_NAMES.filter((n) => !LABELS[n]),
+];
+
+/** Icons whose name, label or search words contain the text. */
+export function matchIcons(text: string): string[] {
+  const q = text.trim().toLowerCase();
+  return ICON_CHOICES.filter((n) => !q || [n, ...(LABELS[n] ?? [])].join(" ").toLowerCase().includes(q));
+}
+
 // Sensible defaults by keyword, in several languages, so a fresh install looks right before anyone configures icons.
 const GUESS: [RegExp, string][] = [
+  // Mobile devices first: "Smartphone", "iPhone" or "Mobiltelefon" must not end up as a desk phone.
+  [/handy|mobil|smartphone|iphone|android/i, "device-mobile"],
+  [/tablet|ipad|kiosk|touch/i, "device-tablet"],
+  [/laptop|notebook|macbook|thinkpad/i, "device-laptop"],
   [/monitor|bildschirm|display|screen/i, "device-desktop"],
-  [/laptop|notebook/i, "device-laptop"],
   [/client|workstation|arbeitsplatz|desktop|pc\b/i, "device-imac"],
   [/label|etikett|dymo|zebra/i, "barcode"],
   [/drucker|printer|mfp|bizhub|kopierer|copier/i, "printer"],
   [/scan/i, "scan"],
   [/telefon|phone|sip/i, "device-landline-phone"],
-  [/handy|mobile|smartphone/i, "device-mobile"],
-  [/tablet|kiosk|touch/i, "device-tablet"],
   [/access.?point|\bap\b|wlan|wifi/i, "access-point"],
   [/switch/i, "switch-horizontal"],
   [/router|modem/i, "router"],

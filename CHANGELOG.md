@@ -4,6 +4,16 @@ All notable changes to deskside are listed here. The format follows [Keep a Chan
 
 ## [Unreleased]
 
+## [0.1.5] - 2026-10-19
+
+### Changed
+
+- Icon pickers show readable names in English or German (Laptop, Tablet, Handy, Drucker ...) and find icons by those names and common search words, such as "Handy", "iPad" or "Notebook". Device icons come first.
+
+### Fixed
+
+- Device types such as "Smartphone", "iPhone" or "Mobiltelefon" got the desk phone icon automatically; mobile phones, tablets (including iPad) and laptops (including MacBook, ThinkPad) are now recognised first.
+
 ## [0.1.4] - 2026-10-19
 
 ### Added
