@@ -4,6 +4,12 @@ All notable changes to deskside are listed here. The format follows [Keep a Chan
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-10-19
+
+### Fixed
+
+- Virtual machines with a fixed address showed no IP at all when no ARP source was configured: the NetBox fallback only looked at devices. It now also uses the primary address of virtual machines, and for devices and virtual machines without a primary address the first fixed address assigned to one of their interfaces.
+
 ## [0.1.2] - 2026-10-19
 
 ### Added

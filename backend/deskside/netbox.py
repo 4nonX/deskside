@@ -262,10 +262,23 @@ class Netbox:
         return {"documented": True, "panel": panel, "endpoint": name, "room": room, "switch": via_switch}
 
     def documented_ip(self, name: str, macs: list[str], external_id: str | None = None) -> str | None:
-        """The primary IPv4 address NetBox has for a device, for devices no source gives an address."""
-        nb_id = self.device_for(name, macs, external_id)
-        addr = (((self.devices.get(nb_id) or {}).get("primary_ip4") or {}).get("address") if nb_id else None)
-        return addr.split("/")[0] if addr else None
+        """The IPv4 address NetBox has for a device or virtual machine, for those no source gives an address:
+        the primary address, else the first fixed address assigned to one of its interfaces."""
+        if external_id and external_id.startswith("netbox:vm:"):
+            vm_id = int(external_id.rsplit(":", 1)[1])
+            obj, assigned = self.vms.get(vm_id), self.ips_by_vm.get(vm_id, [])
+        else:
+            nb_id = self.device_for(name, macs, external_id)
+            if nb_id is None:
+                vm_id = next((i for i, v in self.vms.items() if (v.get("name") or "").lower() == name.lower()), None)
+                obj, assigned = (self.vms.get(vm_id), self.ips_by_vm.get(vm_id, [])) if vm_id else (None, [])
+            else:
+                obj, assigned = self.devices.get(nb_id), self.ips_by_device.get(nb_id, [])
+        addr = ((obj or {}).get("primary_ip4") or {}).get("address")
+        if addr:
+            return addr.split("/")[0]
+        v4 = [a for a, _ in assigned if ":" not in a]
+        return v4[0] if v4 else None
 
     def device_for(self, name: str, macs: list[str], external_id: str | None = None) -> int | None:
         if external_id and external_id.startswith("netbox:device:"):

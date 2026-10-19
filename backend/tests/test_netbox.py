@@ -245,6 +245,10 @@ def test_import_hosts_and_virtual_machines(setup):
         assert [i.mac for i in devs["hv1"].interfaces] == ["00:00:5E:00:53:30"]
         assert [i.mac for i in devs["files"].interfaces] == ["00:00:5E:00:53:62"] and devs["files"].kind == "VM"
         assert devs["files"].parent.name == "hv1"                  # found through the cluster
+        # Fixed addresses of virtual machines count as documented, like those of devices.
+        assert nb.documented_ip("fw", [], fw.external_id) == "10.0.10.250"
+        assert nb.documented_ip("files", [], devs["files"].external_id) is None
+        assert nb.documented_ip("hv1", [], devs["hv1"].external_id) == "10.0.10.3"   # no primary_ip4, assigned address
 
 
 def test_port_place_follows_the_cabling(setup):
