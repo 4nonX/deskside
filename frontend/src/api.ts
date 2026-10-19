@@ -143,7 +143,7 @@ export const api = {
   login: (username: string, password: string) => request<Me>("POST", "/login", { username, password }),
   logout: () => request<{ ok: boolean }>("POST", "/logout", {}),
   devices: (q: string, show: string) =>
-    request<{ total: number; rows: Row[] }>("GET", `/devices?q=${encodeURIComponent(q)}&show=${show}`),
+    request<{ total: number; rows: Row[]; lease_only?: number }>("GET", `/devices?q=${encodeURIComponent(q)}&show=${show}`),
   device: (id: number) => request<DeviceCard>("GET", `/devices/${id}`),
   mac: (mac: string) => request<UnknownCard | { type: "redirect"; device_id: number }>("GET", `/macs/${encodeURIComponent(mac)}`),
   createDevice: (b: { name: string; kind?: string; mac?: string; parent_id?: number; connection?: string;

@@ -283,7 +283,7 @@ class Engine:
                     if host:
                         o.hostname, o.hostname_source = host, origin
                         break
-            if not o.hostname and o.ip:
+            if not o.hostname and o.ip and o.live:
                 cached = self._dns_cache.get(o.ip)
                 if cached and cached[1]:
                     o.hostname, o.hostname_source = cached[1], "dns"
@@ -315,7 +315,7 @@ class Engine:
         if not self.reverse_dns or (self._dns_task and not self._dns_task.done()):
             return
         t = time.time()
-        todo = sorted({o.ip for o in observed.values() if o.ip and not o.hostname
+        todo = sorted({o.ip for o in observed.values() if o.ip and o.live and not o.hostname
                        and (o.ip not in self._dns_cache or t - self._dns_cache[o.ip][0] > 3600)})
         if not todo:
             return
@@ -405,6 +405,8 @@ class Engine:
                 row.ip = o.ip or row.ip
                 if o.hostname:
                     row.hostname, row.hostname_source = o.hostname, o.hostname_source
+                elif row.hostname_source == "dns" and not o.live:
+                    row.hostname, row.hostname_source = None, None     # a stale PTR name, see compute()
                 row.vendor = o.vendor or row.vendor
                 row.dhcp = o.dhcp
                 row.sources = sorted(o.sources)

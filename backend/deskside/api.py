@@ -187,7 +187,18 @@ def list_devices(request: Request, q: str | None = None, show: str = "all",
                  user: User = Depends(current_user)) -> dict[str, Any]:
     with _db(request).session() as s:
         rows = build_rows(s, _engine(request).port_aliases, _contacts_ok(request, user))
-    if show == "known":
+    # Addresses that only a DHCP lease knows about and that no switch or ARP table ever showed: mostly
+    # phones and laptops with a new random MAC per network, valid for days after they left. Kept out of
+    # the default list (a search still finds them) and available under their own filter.
+    def lease_only(r: dict[str, Any]) -> bool:
+        return r["type"] == "unknown" and not r.get("online") and not r.get("last_seen")
+
+    hidden = sum(1 for r in rows if lease_only(r))
+    if show == "all" and not q:
+        rows = [r for r in rows if not lease_only(r)]
+    elif show == "leases":
+        rows = [r for r in rows if lease_only(r)]
+    elif show == "known":
         rows = [r for r in rows if r["type"] == "device"]
     elif show == "unknown":
         rows = [r for r in rows if r["type"] == "unknown"]
@@ -198,7 +209,7 @@ def list_devices(request: Request, q: str | None = None, show: str = "all",
     rows.sort(key=lambda r: (r["type"] != "device", (r.get("name") or "").lower(), ip_sort_key(r.get("ip"))))
     for r in rows:
         r.pop("_blob", None), r.pop("_mackeys", None), r.pop("search_extra", None)
-    return {"total": total, "rows": rows}
+    return {"total": total, "rows": rows, "lease_only": hidden}
 
 
 # --- device card ----------------------------------------------------------------------------

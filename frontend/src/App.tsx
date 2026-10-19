@@ -16,7 +16,7 @@ const MapView = lazy(() => import("./MapView").then((m) => ({ default: m.MapView
 
 type Tab = "devices" | "directory" | "netbox" | "events" | "admin";
 type View = "list" | "map" | "rooms";
-type Show = "all" | "known" | "unknown" | "online" | "peripherals";
+type Show = "all" | "known" | "unknown" | "online" | "peripherals" | "leases";
 
 export function App() {
   const [me, setMe] = useState<Me | null | undefined>(undefined);
@@ -63,6 +63,7 @@ function Main({ me, onSignOut }: { me: Me; onSignOut: () => void }) {
   const [show, setShow] = useState<Show>("all");
   const [rows, setRows] = useState<Row[]>([]);
   const [total, setTotal] = useState(0);
+  const [leaseOnly, setLeaseOnly] = useState(0);
   const [sel, setSel] = useState<Selection | null>(null);
   const [live, setLive] = useState(true);
   const [tick, setTick] = useState(0);
@@ -75,7 +76,7 @@ function Main({ me, onSignOut }: { me: Me; onSignOut: () => void }) {
     try {
       // Rooms need every device (including peripherals) to build the tree; the list filters on the client.
       const res = await api.devices(view === "rooms" ? "" : q, show === "peripherals" ? "known" : show);
-      setRows(res.rows); setTotal(res.total); setLive(true);
+      setRows(res.rows); setTotal(res.total); setLeaseOnly(res.lease_only ?? 0); setLive(true);
     } catch (e) {
       if (e instanceof ApiError && e.status === 401) onSignOut();
     }
@@ -155,10 +156,12 @@ function Main({ me, onSignOut }: { me: Me; onSignOut: () => void }) {
               </div>
               {view === "list" && (
                 <>
-                  {(["all", "known", "unknown", "online", "peripherals"] as Show[]).map((s) => (
+                  {(["all", "known", "unknown", "online", "peripherals", ...(leaseOnly ? ["leases"] : [])] as Show[]).map((s) => (
                     <button key={s} className={show === s ? "chip active" : "chip"} onClick={() => setShow(s)}>{t(`filter.${s}` as "filter.all")}</button>
                   ))}
-                  <span className="count">{t("list.count", { shown: listRows.length, total })}</span>
+                  <span className="count" title={show === "all" && leaseOnly ? t("list.leasehint") : undefined}>
+                    {t("list.count", { shown: listRows.length, total })}
+                  </span>
                 </>
               )}
             </div>

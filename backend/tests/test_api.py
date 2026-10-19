@@ -142,3 +142,14 @@ def test_peripherals_relations_and_graph(client):
     assert client.put("/api/kinds/monitor", json={"icon": "device-desktop"}).status_code == 200
     assert {k["kind"]: k["icon"] for k in client.get("/api/kinds").json()}["monitor"] == "device-desktop"
     assert client.put("/api/kinds/monitor", json={"icon": "<svg>"}).status_code == 400
+
+
+def test_lease_only_addresses_have_their_own_filter(client):
+    from deskside.db import Sighting
+    with client.app.state.db.session() as s:
+        s.add(Sighting(mac="02:00:5E:00:53:01", ip="10.0.10.201", online=False, last_seen=0, dhcp=True))   # only a lease
+        s.add(Sighting(mac="00:00:5E:00:53:02", ip="10.0.10.50", online=True, switch="core", port="Gi3"))
+    res = client.get("/api/devices").json()
+    assert [r["ip"] for r in res["rows"]] == ["10.0.10.50"] and res["lease_only"] == 1
+    assert [r["ip"] for r in client.get("/api/devices", params={"show": "leases"}).json()["rows"]] == ["10.0.10.201"]
+    assert [r["ip"] for r in client.get("/api/devices", params={"q": "10.0.10.201"}).json()["rows"]] == ["10.0.10.201"]
