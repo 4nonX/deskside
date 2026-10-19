@@ -8,6 +8,8 @@ Two conventions keep secrets out of that file:
 * A key ending in ``_file`` is read from the named file, and the result is
   stored under the key without the suffix. ``community_file: /run/secrets/snmp``
   becomes ``community: <file content>``. Trailing whitespace is stripped.
+  Keys that name a file to be used as a file (``oui_file``, ``ca_file``) are
+  left as they are.
 """
 
 from __future__ import annotations
@@ -20,6 +22,8 @@ from typing import Any
 
 import yaml
 
+# Keys ending in _file that point at a file deskside opens itself, not at a secret to read in.
+PATH_KEYS = {"oui_file", "ca_file"}
 _ENV = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
 
 
@@ -41,7 +45,7 @@ def _expand(value: Any, where: str) -> Any:
         out: dict[str, Any] = {}
         for k, v in value.items():
             v = _expand(v, f"{where}.{k}")
-            if isinstance(k, str) and k.endswith("_file") and isinstance(v, str):
+            if isinstance(k, str) and k.endswith("_file") and k not in PATH_KEYS and isinstance(v, str):
                 path = Path(v)
                 try:
                     out[k[: -len("_file")]] = path.read_text(encoding="utf-8").rstrip()

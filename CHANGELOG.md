@@ -35,3 +35,4 @@ All notable changes to deskside are listed here. The format follows [Keep a Chan
 ### Fixed
 
 - `update-oui` failed with HTTP 418: the IEEE server rejects clients without a User-Agent. deskside now identifies itself.
+- `oui_file` and `directory.ca_file` were read in like secret files and then ignored, so vendor names and a custom LDAP CA never took effect. Keys that name a file deskside opens itself now stay paths.

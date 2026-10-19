@@ -89,3 +89,18 @@ def test_port_variants_and_search():
     # "2a" is part of WS09's MAC, but two hex digits are too short to be treated as a MAC fragment
     assert filter_rows(rows, "2a") == []
     assert [r["name"] for r in filter_rows(rows, "53:2a")] == ["WS09"]
+
+
+def test_path_keys_stay_paths_secret_files_are_read(tmp_path, monkeypatch):
+    from deskside.config import load
+    (tmp_path / "community").write_text("s3cret\n", encoding="utf-8")
+    (tmp_path / "oui.csv").write_text("Registry,Assignment\n", encoding="utf-8")
+    cfg = tmp_path / "config.yaml"
+    cfg.write_text(f"server:\n  secret_key: {'k' * 40}\noui_file: {tmp_path / 'oui.csv'}\n"
+                   f"directory:\n  ca_file: {tmp_path / 'oui.csv'}\n"
+                   f"sources:\n  - type: snmp-switch\n    name: sw\n    host: 10.0.0.2\n    community_file: {tmp_path / 'community'}\n",
+                   encoding="utf-8")
+    s = load(str(cfg))
+    assert s.raw["oui_file"] == str(tmp_path / "oui.csv")
+    assert s.raw["directory"]["ca_file"] == str(tmp_path / "oui.csv")
+    assert s.raw["sources"][0]["community"] == "s3cret" and "community_file" not in s.raw["sources"][0]
