@@ -8,6 +8,7 @@ import { NamingWarnings, NextName, PeopleSection, PlaceSection } from "./Place";
 import { RemoteButton, RemoteSection } from "./Remote";
 import { NetboxSection } from "./Netbox";
 import { Peripherals } from "./Peripherals";
+import { DeviceHistory } from "./HistoryView";
 import { ConnectionSelect, KindInput, connectionLabel, makeModel, type Selection } from "./fields";
 
 export type { Selection } from "./fields";
@@ -68,7 +69,7 @@ function DeviceView({ d, canEdit, isAdmin, wrap, onDeleted, onSelect }:
   const st = statusOf(d);
   const hasNet = d.interfaces.length > 0;
   const tabs: [Tab, string, number?][] = [["details", t("card.details")], ["notes", t("card.notes"), d.notes.length],
-    ["history", t("card.history")]];
+    ["history", t("card.timeline")]];
   if (d.netbox || d.proposals.length) tabs.push(["netbox", "NetBox", d.proposals.length || undefined]);
 
   return (
@@ -150,7 +151,7 @@ function DeviceView({ d, canEdit, isAdmin, wrap, onDeleted, onSelect }:
         </>
       )}
       {tab === "notes" && <Notes d={d} canEdit={canEdit} wrap={wrap} />}
-      {tab === "history" && <History events={d.events} />}
+      {tab === "history" && <DeviceHistory deviceId={d.id} events={d.events} />}
       {tab === "netbox" && <NetboxSection d={d} isAdmin={isAdmin} wrap={wrap} />}
     </>
   );

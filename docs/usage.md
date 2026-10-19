@@ -40,7 +40,13 @@ At a glance:
 - **Connection**: switch port, the patch panel port in front of it (from NetBox), a shared segment if there is one, and the device itself. Other devices on the same switch port are listed below and can be opened from there.
 - **Attached devices**: monitors, printers, scanners, docking stations and the like, with how they are connected and the model. Editors can add a new one or attach an existing device.
 
-In the tabs: **Details** (users, room and department, device data, network details per interface, remote access entries), **Notes**, **Recent events** and **NetBox**.
+In the tabs: **Details** (users, room and department, device data, network details per interface, remote access entries), **Notes**, **History** and **NetBox**.
+
+**History** shows where the device was plugged in and which addresses it had, as a timeline with durations ("GigabitEthernet7, 12.10. – now, 7 days"), followed by its events. That answers "was this PC on the network last Tuesday, and where?" without digging through switch logs.
+
+## Events
+
+The **Events** page lists everything deskside noticed, newest first: new and vanished devices, moves between ports, address changes, addresses outside the naming scheme, and ports that suddenly carry many devices. Filter by kind with the buttons, search the text, and load older events at the bottom. Clicking an event opens the device. Admins can have events sent to chat or e-mail, see [notifications.md](notifications.md).
 
 What the card shows in detail:
 

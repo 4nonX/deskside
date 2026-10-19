@@ -34,9 +34,11 @@ from typing import Any
 from sqlalchemy import delete, select
 
 from .config import Settings
-from .db import Database, EventLog, Interface, Sighting, now
+from . import naming
+from .db import Database, Device, EventLog, History, Interface, Sighting, now
 from .directory import Directory, DirectoryError
 from .netbox import Netbox, NetboxError
+from .notify import Notifier
 from .netaddr import is_locally_administered, oui
 from .sources import AddressEntry, PortEntry, Snapshot, Source, SourceError, build_sources
 
@@ -110,6 +112,13 @@ class Engine:
         self._merge_lock = asyncio.Lock()
         self._tasks: list[asyncio.Task[None]] = []
         self._dns_task: asyncio.Task[None] | None = None
+        self._new_events: list[dict[str, Any]] = []
+        self._known_busy: set[tuple[str, str]] = set()
+        self.conventions = naming.load(settings.naming)
+        notif = settings.raw.get("notifications") or []
+        self.notifier = Notifier(notif if isinstance(notif, list) else [],
+                                 (settings.raw.get("server") or {}).get("public_url"),
+                                 int((settings.raw.get("live") or {}).get("notify_batch_seconds", 60)))
         self.last_merge: float | None = None
         self.directory: Directory | None = None
         self.netbox: Netbox | None = None
@@ -196,6 +205,7 @@ class Engine:
                 cutoff = now() - self.settings.retention_days * 86400
                 with self.db.session() as s:
                     s.execute(delete(EventLog).where(EventLog.ts < cutoff))
+                    s.execute(delete(History).where(History.end.is_not(None), History.end < cutoff))
             except Exception:
                 log.exception("housekeeping failed")
 
@@ -320,6 +330,8 @@ class Engine:
             observed = self.compute()
             changed = await asyncio.to_thread(self._persist, observed)
             self.last_merge = time.time()
+            events = self.drain_events()
+        self.notifier.submit(events)
         self._schedule_dns(observed)
         if changed:
             self.publish({"type": "refresh"})
@@ -327,15 +339,42 @@ class Engine:
     def _persist(self, observed: dict[str, Observed]) -> bool:
         t = now()
         changed = False
+        fresh: list[dict[str, Any]] = []
         with self.db.session() as s:
             existing = {x.mac: x for x in s.scalars(select(Sighting))}
             known = dict(s.execute(select(Interface.mac, Interface.device_id)).all())
+            devices = {d.id: d for d in s.scalars(select(Device))}
+            open_hist = {(h.mac, h.kind): h for h in s.scalars(select(History).where(History.end.is_(None)))}
             first_run = not existing
+
+            def label(mac: str, dev: int | None) -> str:
+                d = devices.get(dev) if dev else None
+                return f"{d.name} ({mac})" if d else mac
+
+            def event(kind: str, mac: str | None, dev: int | None, message: str, data: dict[str, Any] | None = None) -> None:
+                s.add(EventLog(kind=kind, mac=mac, device_id=dev, message=message, data=data or {}))
+                d = devices.get(dev) if dev else None
+                fresh.append({"ts": t, "kind": kind, "mac": mac, "device_id": dev, "device": d.name if d else None,
+                              "message": message, "data": data or {}})
+
+            def period(mac: str, kind: str, value: str | None, switch: str | None = None) -> None:
+                cur = open_hist.get((mac, kind))
+                if cur is not None and (cur.value, cur.switch) == (value, switch):
+                    return
+                if cur is not None:
+                    cur.end = t
+                    del open_hist[(mac, kind)]
+                if value:
+                    h = History(mac=mac, kind=kind, switch=switch, value=value, start=t)
+                    s.add(h)
+                    open_hist[(mac, kind)] = h
+
             if first_run and observed:
-                s.add(EventLog(kind="discovery", message=f"Initial discovery: {len(observed)} MAC addresses"))
+                event("discovery", None, None, f"Initial discovery: {len(observed)} MAC addresses")
             for mac, o in observed.items():
                 row = existing.get(mac)
                 dev = known.get(mac)
+                who = label(mac, dev)
                 if row is None:
                     row = Sighting(mac=mac, first_seen=t, last_seen=t if o.live else 0, online=o.live,
                                    port_since=t if o.port else None)
@@ -343,24 +382,21 @@ class Engine:
                     changed = True
                     if o.live and not first_run:
                         what = "Known device back on the network" if dev else "New device on the network"
-                        s.add(EventLog(kind="online" if dev else "new", mac=mac, device_id=dev,
-                                       message=f"{what}: {mac} {o.ip or ''} {_where(o)}".strip(), data=_ev(o)))
+                        event("online" if dev else "new", mac, dev, f"{what}: {who} {o.ip or ''} {_where(o)}".strip(), _ev(o))
                 elif o.live:
                     if not row.online:
                         changed = True
-                        s.add(EventLog(kind="online", mac=mac, device_id=dev,
-                                       message=f"Back online: {mac} {o.ip or ''} {_where(o)}".strip(), data=_ev(o)))
+                        event("online", mac, dev, f"Back online: {who} {o.ip or ''} {_where(o)}".strip(), _ev(o))
                     if o.port and (row.switch, row.port) != (o.switch, o.port):
                         if row.port:
-                            s.add(EventLog(kind="moved", mac=mac, device_id=dev,
-                                           message=f"Moved: {mac} from {row.switch} {row.port} to {_where(o)}",
-                                           data={**_ev(o), "from_switch": row.switch, "from_port": row.port}))
+                            event("moved", mac, dev, f"Moved: {who} from {row.switch} {row.port} to {_where(o)}",
+                                  {**_ev(o), "from_switch": row.switch, "from_port": row.port})
                         row.port_since = t
                         changed = True
                     if o.ip and row.ip and o.ip != row.ip:
-                        s.add(EventLog(kind="ip_changed", mac=mac, device_id=dev,
-                                       message=f"New address: {mac} {row.ip} -> {o.ip}", data={**_ev(o), "from_ip": row.ip}))
+                        event("ip_changed", mac, dev, f"New address: {who} {row.ip} -> {o.ip}", {**_ev(o), "from_ip": row.ip})
                         changed = True
+                        self._check_scheme(event, devices.get(dev) if dev else None, mac, o.ip)
                 before = (row.ip, row.hostname, row.switch, row.port, row.online, row.vendor, row.dhcp)
                 if o.port:
                     row.switch, row.port, row.vlan = o.switch, o.port, o.vlan
@@ -374,6 +410,10 @@ class Engine:
                 if o.live:
                     row.online = True
                     row.last_seen = t
+                    if o.port:
+                        period(mac, "port", o.port, o.switch)
+                    if o.ip:
+                        period(mac, "ip", o.ip)
                 if before != (row.ip, row.hostname, row.switch, row.port, row.online, row.vendor, row.dhcp):
                     changed = True
             for mac, row in existing.items():
@@ -381,10 +421,38 @@ class Engine:
                 if row.online and not (o and o.live) and t - row.last_seen > self.settings.offline_after:
                     row.online = False
                     changed = True
-                    s.add(EventLog(kind="offline", mac=mac, device_id=known.get(mac),
-                                   message=f"Offline: {mac} {row.ip or ''}, last seen on {row.switch or '?'} {row.port or ''}".strip()))
+                    dev = known.get(mac)
+                    event("offline", mac, dev,
+                          f"Offline: {label(mac, dev)} {row.ip or ''}, last seen on {row.switch or '?'} {row.port or ''}".strip(),
+                          {"ip": row.ip, "switch": row.switch, "port": row.port, "last_seen": row.last_seen})
+                    for kind in ("port", "ip"):
+                        h = open_hist.pop((mac, kind), None)
+                        if h is not None:
+                            h.end = row.last_seen
+            if not first_run:
+                for key, count in self.suspect_ports.items():
+                    if key not in self._known_busy:
+                        event("busy_port", None, None,
+                              f"{key[0]} {key[1]} now carries {count} MAC addresses without a known neighbour: "
+                              f"probably an unmanaged switch or a hypervisor", {"switch": key[0], "port": key[1], "macs": count})
+            self._known_busy = set(self.suspect_ports)
+        if fresh:
+            self._new_events.extend(fresh)
         return changed
 
+    def _check_scheme(self, event, device, mac: str, ip: str) -> None:
+        """Event when a device moves to an address its naming convention does not expect."""
+        if device is None or not self.conventions:
+            return
+        for w in naming.check(self.conventions, device.name, device.kind, [ip]):
+            if w.startswith("ip_mismatch:"):
+                expected = w.split(":", 1)[1]
+                event("scheme", mac, device.id, f"Address outside the scheme: {device.name} uses {ip}, expected {expected}",
+                      {"ip": ip, "expected": expected})
+
+    def drain_events(self) -> list[dict[str, Any]]:
+        out, self._new_events = self._new_events, []
+        return out
 
 def _where(o: Observed) -> str:
     return f"on {o.switch} {o.port}" if o.port else ""

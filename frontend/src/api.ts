@@ -84,6 +84,7 @@ export interface NetboxInfo {
   id: number; name: string; url: string; location: string | null;
   interfaces: { name: string; macs: string[]; endpoint: string | null; via: string | null }[];
 }
+export interface HistoryItem { kind: "port" | "ip"; mac: string; switch: string | null; value: string; start: number; end: number | null }
 export interface Convention { key: string; pattern: string; kind: string; ip: string | null; next: string }
 
 export interface Note { id: number; text: string; pinned: boolean; author: string; created_at: number; updated_at: number }
@@ -178,7 +179,16 @@ export const api = {
   addNote: (id: number, text: string, pinned: boolean) => request("POST", `/devices/${id}/notes`, { text, pinned }),
   updateNote: (id: number, b: Partial<{ text: string; pinned: boolean }>) => request("PATCH", `/notes/${id}`, b),
   deleteNote: (id: number) => request("DELETE", `/notes/${id}`),
-  events: (limit = 300) => request<EventItem[]>("GET", `/events?limit=${limit}`),
+  events: (o: { limit?: number; kind?: string; q?: string; before?: number; deviceId?: number } = {}) => {
+    const p = new URLSearchParams({ limit: String(o.limit ?? 200) });
+    if (o.kind) p.set("kind", o.kind);
+    if (o.q) p.set("q", o.q);
+    if (o.before) p.set("before", String(o.before));
+    if (o.deviceId) p.set("device_id", String(o.deviceId));
+    return request<EventItem[]>("GET", `/events?${p}`);
+  },
+  history: (deviceId: number) => request<HistoryItem[]>("GET", `/history?device_id=${deviceId}`),
+  testNotifications: () => request<{ name: string; ok: boolean; error: string | null }[]>("POST", "/notifications/test", {}),
   sources: () => request<SourcesInfo>("GET", "/sources"),
   users: () => request<UserItem[]>("GET", "/users"),
   createUser: (b: { username: string; password: string; role: Role }) => request("POST", "/users", b),

@@ -7,6 +7,7 @@
 
 server:
   secret_key_file: /run/secrets/secret_key        # at least 32 random characters, signs sessions
+  # public_url: https://deskside.example.org     # used for links in notifications
   admin_password_file: /run/secrets/admin_password # only used to create the first "admin" account
 
 database:
@@ -28,6 +29,21 @@ naming:
     pattern: "WS{nn}"
     kind: workstation
     # ip: "10.0.10.{100+n}"    # expected address per number, if you use a scheme
+
+# Notifications (optional). See docs/notifications.md.
+# notifications:
+#   - type: webhook                  # chat: Slack, Mattermost, Rocket.Chat, Google Chat
+#     name: it-chat
+#     url_file: /run/secrets/chat_webhook_url
+#     events: [new, moved, offline, scheme, busy_port]
+#   - type: email
+#     host: smtp.example.org
+#     user: deskside@example.org
+#     password_file: /run/secrets/smtp_password
+#     from: deskside@example.org
+#     to: [it@example.org]
+#     events: [new, offline]
+#     only_known: true
 
 # NetBox (optional). Start read-only and look at the proposals first. See docs/netbox.md.
 # netbox:

@@ -25,7 +25,7 @@ export function EventsView({ onOpen }: { onOpen: (s: Selection) => void }) {
   );
 }
 
-export function SourcesView() {
+export function SourcesView({ isAdmin = false }: { isAdmin?: boolean }) {
   const [info, setInfo] = useState<SourcesInfo | null>(null);
   useEffect(() => {
     const load = () => api.sources().then(setInfo).catch(() => undefined);
@@ -34,9 +34,18 @@ export function SourcesView() {
     return () => clearInterval(h);
   }, []);
   if (!info) return null;
+  const hasNotify = info.sources.some((s) => s.type.startsWith("notify-"));
   return (
     <>
       <h2>{t("sources.title")}</h2>
+      {isAdmin && hasNotify && (
+        <p><button onClick={async () => {
+          try {
+            const r = await api.testNotifications();
+            alert(r.map((x) => `${x.name}: ${x.ok ? t("notify.ok") : x.error}`).join("\n"));
+          } catch (e) { alert(t("err.generic", { msg: e instanceof ApiError ? e.message : String(e) })); }
+        }}>{t("notify.test")}</button></p>
+      )}
       <div className="sources">
         {info.sources.map((s) => (
           <div key={s.name} className={s.error ? "source bad" : "source"}>

@@ -104,6 +104,11 @@ def load(path: str | os.PathLike[str] | None = None) -> Settings:
     if s.contacts_visible_to not in ("viewer", "editor", "admin"):
         raise ConfigError("privacy.contacts_visible_to must be viewer, editor or admin")
     s.directory = data.get("directory") or None
+    from .notify import Notifier, NotifyError
+    try:
+        Notifier(data.get("notifications") or [])
+    except NotifyError as exc:
+        raise ConfigError(str(exc)) from exc
     from .remote import RemoteError, load as load_remote
     try:
         load_remote(data.get("remote_tools"))

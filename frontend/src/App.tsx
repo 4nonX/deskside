@@ -4,7 +4,8 @@ import { ago, t } from "./i18n";
 import { IconPin, IconSearch } from "./icons";
 import { Card } from "./Card";
 import type { Selection } from "./fields";
-import { EventsView, SourcesView, UsersView } from "./Views";
+import { SourcesView, UsersView } from "./Views";
+import { EventsPage } from "./HistoryView";
 import { DirectoryView } from "./Directory";
 import { NetboxView } from "./Netbox";
 import { MapView } from "./MapView";
@@ -165,7 +166,7 @@ function Main({ me, onSignOut }: { me: Me; onSignOut: () => void }) {
             {view === "rooms" && <RoomsView rows={rows} onOpen={open} />}
           </main>
         )}
-        {tab === "events" && <main className="page"><EventsView onOpen={open} /></main>}
+        {tab === "events" && <main className="page"><EventsPage onOpen={open} /></main>}
         {tab === "directory" && <main className="page"><DirectoryView me={me} onKindsChanged={loadKinds} /></main>}
         {tab === "netbox" && <main className="page"><NetboxView me={me} onOpen={open} /></main>}
         {tab === "admin" && (
@@ -176,7 +177,7 @@ function Main({ me, onSignOut }: { me: Me; onSignOut: () => void }) {
                 <button className={admin === "users" ? "chip active" : "chip"} onClick={() => setAdmin("users")}>{t("app.users")}</button>
               </div>
             )}
-            {(admin === "sources" || me.role !== "admin") ? <SourcesView /> : <UsersView me={me} />}
+            {(admin === "sources" || me.role !== "admin") ? <SourcesView isAdmin={me.role === "admin"} /> : <UsersView me={me} />}
           </main>
         )}
 

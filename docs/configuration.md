@@ -17,6 +17,7 @@ Two mechanisms work anywhere in the file:
 |---|---|
 | `secret_key` | At least 32 random characters. Signs session cookies. Changing it signs everyone out |
 | `admin_password` | Used only when the database has no users yet, to create the account `admin` |
+| `public_url` | The address users open deskside at, for example `https://deskside.example.org`. Used for links in notifications |
 
 ### database
 
@@ -30,7 +31,8 @@ Two mechanisms work anywhere in the file:
 |---|---|---|
 | `offline_after` | `900` | Seconds without being seen in a switch table or ARP before a device counts as offline |
 | `uplink_mac_threshold` | `4` | A port with more MAC addresses than this and no known neighbour is flagged: probably an unmanaged switch, a hypervisor or a docking station |
-| `retention_days` | `90` | Events older than this are removed |
+| `retention_days` | `90` | Events and port/address history older than this are removed |
+| `notify_batch_seconds` | `60` | How long events are collected before a notification is sent |
 
 ### dns
 
@@ -150,6 +152,14 @@ deskside records these events, shown under **Events** and on each device card:
 | `offline` | A device was not seen for `offline_after` seconds |
 | `moved` | A device appears on a different switch port |
 | `ip_changed` | A device uses a different IP address |
+| `scheme` | A device moved to an address its naming convention does not expect |
+| `busy_port` | A switch port now carries more addresses than `uplink_mac_threshold` without a known neighbour |
+
+Besides events, deskside keeps a history of where each MAC address was plugged in and which IP address it used, as periods with a start and an end. It is shown on the device card and trimmed after `retention_days`.
+
+### notifications
+
+Where to send events: chat webhooks, other HTTP endpoints, e-mail. See [notifications.md](notifications.md).
 
 ## Accounts and roles
 

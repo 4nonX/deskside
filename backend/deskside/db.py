@@ -202,6 +202,22 @@ class Sighting(Base):
     sources: Mapped[list[str]] = mapped_column(JSON, default=list)
 
 
+class History(Base):
+    """Where a MAC address was plugged in and which IP it used, as periods with a start and an end.
+
+    ``end`` is empty for the current period. Port periods also end when the device goes offline.
+    """
+
+    __tablename__ = "history"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    mac: Mapped[str] = mapped_column(String(17), index=True)
+    kind: Mapped[str] = mapped_column(String(10))                 # "port" or "ip"
+    switch: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    value: Mapped[str] = mapped_column(String(200))               # port name or IP address
+    start: Mapped[int] = mapped_column(Integer, index=True)
+    end: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+
+
 class EventLog(Base):
     __tablename__ = "events"
     id: Mapped[int] = mapped_column(primary_key=True)

@@ -17,8 +17,8 @@ from sqlalchemy.orm import Session, selectinload
 from . import __version__
 from .auth import COOKIE, MAX_AGE, ROLES, current_user, hash_password, require, verify_password
 from . import naming
-from .db import (AuditLog, Department, Device, DevicePerson, EventLog, Interface, Note, Person, Proposal, Room, Sighting,
-                 User, now)
+from .db import (AuditLog, Department, Device, DevicePerson, EventLog, History, Interface, Note, Person, Proposal, Room,
+                 Sighting, User, now)
 from .netaddr import ip_sort_key, mac_search_key, normalize_mac
 from .search import filter_rows, search_blob
 
@@ -510,14 +510,47 @@ def delete_note(note_id: int, request: Request, user: User = Depends(require("ed
 # --- events, sources, users -----------------------------------------------------------------
 
 @router.get("/events")
-def list_events(request: Request, limit: int = 200, kind: str | None = None,
+def list_events(request: Request, limit: int = 200, kind: str | None = None, q: str | None = None,
+                device_id: int | None = None, before: int | None = None,
                 user: User = Depends(current_user)) -> list[dict[str, Any]]:
+    """Newest first. ``kind`` may list several kinds separated by commas; ``before`` pages back by id."""
     with _db(request).session() as s:
-        q = select(EventLog).order_by(EventLog.ts.desc()).limit(min(limit, 1000))
+        stmt = select(EventLog).order_by(EventLog.id.desc()).limit(min(limit, 1000))
         if kind:
-            q = q.where(EventLog.kind == kind)
+            stmt = stmt.where(EventLog.kind.in_([k for k in kind.split(",") if k]))
+        if device_id:
+            macs = list(s.scalars(select(Interface.mac).where(Interface.device_id == device_id)))
+            stmt = stmt.where(or_(EventLog.device_id == device_id, EventLog.mac.in_(macs)))
+        if before:
+            stmt = stmt.where(EventLog.id < before)
+        if q:
+            stmt = stmt.where(EventLog.message.ilike(f"%{q.strip()}%"))
         return [{"id": e.id, "ts": e.ts, "kind": e.kind, "mac": e.mac, "device_id": e.device_id,
-                 "message": e.message} for e in s.scalars(q)]
+                 "message": e.message} for e in s.scalars(stmt)]
+
+
+@router.get("/history")
+def history(request: Request, device_id: int | None = None, mac: str | None = None,
+            user: User = Depends(current_user)) -> list[dict[str, Any]]:
+    """Port and address periods of a device (all its MAC addresses) or of one MAC address, newest first."""
+    with _db(request).session() as s:
+        if device_id:
+            macs = list(s.scalars(select(Interface.mac).where(Interface.device_id == device_id)))
+        elif mac and normalize_mac(mac):
+            macs = [normalize_mac(mac)]
+        else:
+            raise HTTPException(400, "Give a device_id or a MAC address.")
+        rows = s.scalars(select(History).where(History.mac.in_(macs)).order_by(History.start.desc()).limit(500))
+        return [{"kind": h.kind, "mac": h.mac, "switch": h.switch, "value": h.value, "start": h.start, "end": h.end}
+                for h in rows]
+
+
+@router.post("/notifications/test")
+async def test_notifications(request: Request, user: User = Depends(require("admin"))) -> list[dict[str, Any]]:
+    n = _engine(request).notifier
+    if not n.channels:
+        raise HTTPException(400, "No notification channels are configured.")
+    return await n.test()
 
 
 @router.get("/sources")
@@ -526,7 +559,7 @@ def list_sources(request: Request, user: User = Depends(current_user)) -> dict[s
     return {
         "last_merge": eng.last_merge,
         "sources": [vars(st) for st in eng.state.values()] + ([vars(eng.directory.state)] if eng.directory else [])
-                   + ([vars(eng.netbox.state)] if eng.netbox else []),
+                   + ([vars(eng.netbox.state)] if eng.netbox else []) + [vars(c.state) for c in eng.notifier.channels],
         "suspect_ports": [{"switch": k[0], "port": k[1], "macs": v} for k, v in sorted(eng.suspect_ports.items())],
     }
 

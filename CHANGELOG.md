@@ -25,3 +25,7 @@ All notable changes to deskside are listed here. The format follows [Keep a Chan
 - Network map: a diagram per switch with every port, the devices on it and their peripherals, shared ports as groups, and search highlighting. Room view with devices and peripherals per room.
 - Icons per device type, chosen from a bundled set of Tabler Icons, with sensible defaults and a per-device override.
 - Click-to-copy for IP and MAC addresses, host names and serial numbers throughout.
+- History: where each MAC address was plugged in and which IP address it used, as periods, shown as a timeline on the device card and trimmed after the retention period.
+- New events: an address outside the naming scheme, and a switch port that newly carries many addresses. Event messages name the device, not only its MAC address.
+- Notifications to chat webhooks (Slack-compatible text), other HTTP endpoints (JSON) and e-mail (SMTP with STARTTLS or TLS). Events are batched per minute, filtered per channel by kind and optionally to known devices, and channel status and a test message are available on the Sources page.
+- Events page with filters by kind, text search and paging.
