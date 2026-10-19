@@ -11,13 +11,35 @@ export function Peripherals({ d, canEdit, wrap, onSelect }:
   { d: DeviceCard; canEdit: boolean; wrap: Wrap; onSelect: (s: Selection) => void }) {
   const iconFor = useIconFor();
   const [mode, setMode] = useState<"" | "new" | "attach">("");
-  if (!d.children.length && !canEdit) return null;
+  // Virtual machines run on this host; they are not attached hardware and get their own list.
+  const vms = d.children.filter((c) => c.connection === "virtual");
+  const attached = d.children.filter((c) => c.connection !== "virtual");
   return (
+    <>
+    {vms.length > 0 && (
+      <section className="tight">
+        <h3>{t("vm.title")}</h3>
+        <div className="peripherals">
+          {vms.map((c) => (
+            <div key={c.id} className="periph" role="button" tabIndex={0}
+                 onClick={() => onSelect({ kind: "device", id: c.id })}
+                 onKeyDown={(e) => e.key === "Enter" && onSelect({ kind: "device", id: c.id })}>
+              <Icon name={iconFor(c.kind, c.icon)} size={20} />
+              <div className="periph-text">
+                <div className="periph-name">{c.name}</div>
+                <div className="sub">{c.kind}</div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </section>
+    )}
+    {(attached.length > 0 || canEdit) && (
     <section className="tight">
       <h3>{t("per.title")}</h3>
-      {d.children.length > 0 && (
+      {attached.length > 0 && (
         <div className="peripherals">
-          {d.children.map((c) => (
+          {attached.map((c) => (
             <div key={c.id} className="periph" role="button" tabIndex={0}
                  onClick={() => onSelect({ kind: "device", id: c.id })}
                  onKeyDown={(e) => e.key === "Enter" && onSelect({ kind: "device", id: c.id })}>
@@ -48,6 +70,8 @@ export function Peripherals({ d, canEdit, wrap, onSelect }:
       {mode === "new" && <NewPeripheral d={d} wrap={wrap} onDone={() => setMode("")} />}
       {mode === "attach" && <AttachExisting d={d} wrap={wrap} onDone={() => setMode("")} />}
     </section>
+    )}
+    </>
   );
 }
 

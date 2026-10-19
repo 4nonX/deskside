@@ -4,6 +4,18 @@ All notable changes to deskside are listed here. The format follows [Keep a Chan
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-10-19
+
+### Added
+
+- Drop-down filters below the list: device type, room, switch and port, and data quality (without IP, IP only as documented in NetBox, not in NetBox). They combine with the search and only offer values present in the current list.
+- **Offline** and **VMs** buttons next to the existing list filters.
+- Devices imported from NetBox explain in the edit form why the name, manufacturer, model and serial number are locked, with a link to the device in NetBox.
+
+### Fixed
+
+- Virtual machines were treated as peripherals of their host: hidden from the plain list and listed as "attached" on the host's card. They now stay in the list as "VM on <host>", and the host's card shows them in their own section.
+
 ## [0.1.1] - 2026-10-19
 
 ### Fixed

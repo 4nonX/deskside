@@ -12,7 +12,16 @@ A few things that help:
 - **Keyboard:** `/` jumps to the search field, Enter opens the first result, Escape closes the card.
 - The search is part of the address (`?q=...`), so a search can be bookmarked or sent to a colleague.
 
-The filters above the list show all devices, only the ones you have named (**Known**), only addresses nobody has named yet (**Unknown**), what is **Online** right now, or only **Peripherals**. Attached devices such as monitors are left out of the plain list so it stays readable; they appear as soon as you search, and on their parent's card.
+The buttons above the list show all devices, only the ones you have named (**Known**), only addresses nobody has named yet (**Unknown**), what is **Online** or **Offline** right now, only virtual machines (**VMs**), or only **Peripherals**. Attached devices such as monitors are left out of the plain list so it stays readable; they appear as soon as you search, and on their parent's card. Virtual machines are full network devices and stay in the list; they show which host they run on, and the host's card lists them under **Virtual machines**, apart from attached devices.
+
+Below the buttons, drop-down filters narrow the list further and combine with the search:
+
+- **Type**: one device type, such as printers or servers.
+- **Room**: the room set on the device, otherwise the room its switch port leads to as documented in NetBox.
+- **Switch** and then **Port**: everything seen on one switch or one port.
+- **Data**: devices without an IP address, devices whose address is only documented in NetBox (no DHCP or ARP source reports it), or devices that are not in NetBox.
+
+Each drop-down only offers values that occur in the current list. **Reset filters** clears them all.
 
 IP addresses, MAC addresses, host names and serial numbers copy themselves when you click them, in the list and on the card.
 

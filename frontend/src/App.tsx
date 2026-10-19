@@ -17,7 +17,32 @@ const MapView = lazy(() => import("./MapView").then((m) => ({ default: m.MapView
 
 type Tab = "devices" | "directory" | "netbox" | "events" | "admin";
 type View = "list" | "map" | "rooms";
-type Show = "all" | "known" | "unknown" | "online" | "peripherals" | "leases";
+type Show = "all" | "known" | "unknown" | "online" | "offline" | "peripherals" | "vms" | "leases";
+type DataFilter = "" | "noip" | "documented" | "notnetbox";
+interface Filters { kind: string; room: string; sw: string; port: string; data: DataFilter }
+const NO_FILTERS: Filters = { kind: "", room: "", sw: "", port: "", data: "" };
+
+// Virtual machines hang off their host like peripherals do, but they are full network devices of their own.
+const isVm = (r: Row) => !!r.parent_id && r.connection === "virtual";
+const isPeripheral = (r: Row) => !!r.parent_id && r.connection !== "virtual";
+const SERVER_SHOW: Partial<Record<Show, string>> = { peripherals: "known", vms: "known", offline: "all" };
+
+// The room set in deskside, else the room the switch port leads to (as documented in NetBox).
+const roomOf = (r: Row) => r.room || r.port_place?.room || null;
+
+function matches(r: Row, f: Filters): boolean {
+  if (f.kind && (r.kind || "") !== f.kind) return false;
+  if (f.room && roomOf(r) !== f.room) return false;
+  if (f.sw && r.switch !== f.sw) return false;
+  if (f.port && r.port !== f.port) return false;
+  if (f.data === "noip" && r.ip) return false;
+  if (f.data === "documented" && !r.ip_documented) return false;
+  if (f.data === "notnetbox" && r.type === "device" && r.source === "netbox") return false;
+  return true;
+}
+
+const uniq = (xs: (string | null | undefined)[]) =>
+  [...new Set(xs.filter((x): x is string => !!x))].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
 
 export function App() {
   const [me, setMe] = useState<Me | null | undefined>(undefined);
@@ -69,6 +94,7 @@ function Main({ me, onSignOut }: { me: Me; onSignOut: () => void }) {
   const [admin, setAdmin] = useState<"sources" | "users">("sources");
   const [q, setQ] = useState(() => new URLSearchParams(location.search).get("q") ?? "");
   const [show, setShow] = useState<Show>("all");
+  const [filters, setFilters] = useState<Filters>(NO_FILTERS);
   const [rows, setRows] = useState<Row[]>([]);
   const [total, setTotal] = useState(0);
   const [leaseOnly, setLeaseOnly] = useState(0);
@@ -83,7 +109,7 @@ function Main({ me, onSignOut }: { me: Me; onSignOut: () => void }) {
   const load = useCallback(async () => {
     try {
       // Rooms need every device (including peripherals) to build the tree; the list filters on the client.
-      const res = await api.devices(view === "rooms" ? "" : q, show === "peripherals" ? "known" : show);
+      const res = await api.devices(view === "rooms" ? "" : q, SERVER_SHOW[show] ?? show);
       setRows(res.rows); setTotal(res.total); setLeaseOnly(res.lease_only ?? 0); setLive(true);
     } catch (e) {
       if (e instanceof ApiError && e.status === 401) onSignOut();
@@ -118,11 +144,20 @@ function Main({ me, onSignOut }: { me: Me; onSignOut: () => void }) {
   }, []);
 
   // Peripherals clutter the list; they appear when searched for or when the peripherals filter is on.
-  const listRows = useMemo(() => {
-    if (show === "peripherals") return rows.filter((r) => r.parent_id);
-    if (q.trim()) return rows;
-    return rows.filter((r) => !r.parent_id);
+  const baseRows = useMemo(() => {
+    if (show === "peripherals") return rows.filter(isPeripheral);
+    if (show === "vms") return rows.filter(isVm);
+    const r = show === "offline" ? rows.filter((x) => !x.online) : rows;
+    return q.trim() ? r : r.filter((x) => !isPeripheral(x));
   }, [rows, show, q]);
+  const listRows = useMemo(() => baseRows.filter((r) => matches(r, filters)), [baseRows, filters]);
+  // Choices come from what the current view holds, so a filter never offers an empty result.
+  const choices = useMemo(() => ({
+    kind: uniq(baseRows.map((r) => r.kind)), room: uniq(baseRows.map(roomOf)),
+    sw: uniq(baseRows.map((r) => r.switch)),
+    port: uniq(baseRows.filter((r) => r.switch === filters.sw).map((r) => r.port)),
+  }), [baseRows, filters.sw]);
+  const filtered = Object.values(filters).some(Boolean);
 
   const open = (s: Selection) => { setSel(s); setTab("devices"); if (view === "rooms") setView("list"); };
   const tabs: [Tab, string][] = [["devices", t("app.devices")], ["directory", t("app.directory")], ["netbox", "NetBox"],
@@ -154,7 +189,7 @@ function Main({ me, onSignOut }: { me: Me; onSignOut: () => void }) {
 
         {tab === "devices" && (
           <main className={view === "list" ? "list" : "page"}>
-            <div className={view === "list" ? "filters" : "filters inline-tabs"}>
+            <div className={view === "list" ? "filters wrap" : "filters inline-tabs"}>
               <div className="segmented" role="tablist">
                 {(["list", "map", "rooms"] as View[]).map((v) => (
                   <button key={v} role="tab" aria-selected={view === v} className={view === v ? "active" : ""} onClick={() => setView(v)}>
@@ -164,7 +199,7 @@ function Main({ me, onSignOut }: { me: Me; onSignOut: () => void }) {
               </div>
               {view === "list" && (
                 <>
-                  {(["all", "known", "unknown", "online", "peripherals", ...(leaseOnly ? ["leases"] : [])] as Show[]).map((s) => (
+                  {(["all", "known", "unknown", "online", "offline", "vms", "peripherals", ...(leaseOnly ? ["leases"] : [])] as Show[]).map((s) => (
                     <button key={s} className={show === s ? "chip active" : "chip"} onClick={() => setShow(s)}>{t(`filter.${s}` as "filter.all")}</button>
                   ))}
                   <span className="count" title={show === "all" && leaseOnly ? t("list.leasehint") : undefined}>
@@ -173,6 +208,22 @@ function Main({ me, onSignOut }: { me: Me; onSignOut: () => void }) {
                 </>
               )}
             </div>
+            {view === "list" && (
+              <div className="filters wrap subfilters">
+                <FilterSelect label={t("filter.kind")} value={filters.kind} options={choices.kind}
+                              onChange={(kind) => setFilters({ ...filters, kind })} />
+                <FilterSelect label={t("filter.room")} value={filters.room} options={choices.room}
+                              onChange={(room) => setFilters({ ...filters, room })} />
+                <FilterSelect label={t("filter.switch")} value={filters.sw} options={choices.sw}
+                              onChange={(sw) => setFilters({ ...filters, sw, port: "" })} />
+                {filters.sw && <FilterSelect label={t("filter.port")} value={filters.port} options={choices.port}
+                                             onChange={(port) => setFilters({ ...filters, port })} />}
+                <FilterSelect label={t("filter.data")} value={filters.data} options={["noip", "documented", "notnetbox"]}
+                              optionLabel={(o) => t(`filter.data.${o}` as "filter.data.noip")}
+                              onChange={(data) => setFilters({ ...filters, data: data as DataFilter })} />
+                {filtered && <button className="link small" onClick={() => setFilters(NO_FILTERS)}>{t("filter.reset")}</button>}
+              </div>
+            )}
             {view === "list" && <DeviceTable rows={listRows} selected={sel} onSelect={setSel} />}
             {view === "map" && <Suspense fallback={null}><MapView q={q} tick={tick} onOpen={setSel} /></Suspense>}
             {view === "rooms" && <RoomsView rows={rows} onOpen={open} />}
@@ -242,7 +293,7 @@ function DeviceTable({ rows, selected, onSelect }: { rows: Row[]; selected: Sele
             <td><Copyable value={r.ip} mono />{r.ip_documented && <div className="sub">{t("ip.documented")}</div>}</td>
             <td><Copyable value={r.mac} mono /></td>
             <td>
-              {r.parent ? <span className="sub">{t("card.attachedto")} {r.parent}</span> : r.port && (() => {
+              {r.parent ? <span className="sub">{t(isVm(r) ? "card.vmon" : "card.attachedto")} {r.parent}</span> : r.port && (() => {
                 const w = where(r.switch, r.port, r.port_place, r.name, r.port_alias, r.behind_uplink);
                 return <>
                   <span className={r.behind_uplink ? "port behind" : "port"} title={`${r.switch} ${r.port}`}>{w.main}</span>
@@ -262,5 +313,19 @@ function DeviceTable({ rows, selected, onSelect }: { rows: Row[]; selected: Sele
         ))}
       </tbody>
     </table>
+  );
+}
+
+function FilterSelect({ label, value, options, optionLabel, onChange }: {
+  label: string; value: string; options: string[]; optionLabel?: (o: string) => string; onChange: (v: string) => void;
+}) {
+  if (!options.length && !value) return null;
+  return (
+    <select className={value ? "filter-select active" : "filter-select"} value={value} aria-label={label}
+            onChange={(e) => onChange(e.target.value)}>
+      <option value="">{label}</option>
+      {value && !options.includes(value) && <option value={value}>{optionLabel ? optionLabel(value) : value}</option>}
+      {options.map((o) => <option key={o} value={o}>{optionLabel ? optionLabel(o) : o}</option>)}
+    </select>
   );
 }

@@ -64,7 +64,7 @@ nav { display: flex; gap: 2px; }
 .list, .page { overflow: auto; min-width: 0; }
 .page { padding: 18px 24px; }
 .filters { display: flex; align-items: center; gap: 6px; padding: 12px 18px 8px; position: sticky; top: 0; background: var(--bg); z-index: 1; }
-.chip { border-radius: 999px; padding: 3px 12px; font-size: 13px; }
+.chip { border-radius: 999px; padding: 3px 12px; font-size: 13px; white-space: nowrap; }
 .chip.active { background: var(--accent-soft); border-color: var(--accent); }
 .count { margin-left: auto; color: var(--muted); font-size: 12.5px; }
 
@@ -347,6 +347,9 @@ ul.events.proposals li { grid-template-columns: 90px 150px 1fr auto; align-items
 .tl-when { grid-column: 1; color: var(--muted); font-size: 12px; }
 .tl-dur { grid-row: 1; grid-column: 2; color: var(--muted); font-size: 12px; }
 .filters.wrap { flex-wrap: wrap; }
+.filters.subfilters { padding-top: 0; top: auto; position: static; }
+.filter-select { font-size: 13px; padding: 3px 8px; border-radius: 6px; max-width: 220px; }
+.filter-select.active { background: var(--accent-soft); border-color: var(--accent); }
 .ev.scheme, .ev.busy_port { color: var(--warn-line); }
 button.more { margin: 12px 0; }
 

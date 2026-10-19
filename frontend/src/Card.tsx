@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { portName, where } from "./portplace";
 import { ApiError, api, type DeviceCard, type EventItem, type Me, type NetInfo, type Row, type UnknownCard } from "./api";
 import { ago, datetime, t } from "./i18n";
-import { IconClose, IconEdit, IconPin, IconPlus, IconTrash, IconWarn } from "./icons";
+import { IconClose, IconEdit, IconLink, IconPin, IconPlus, IconTrash, IconWarn } from "./icons";
 import { ICON_NAMES, Icon, useIconFor } from "./iconset";
 import { Copyable, Fact } from "./Copy";
 import { NamingWarnings, NextName, PeopleSection, PlaceSection } from "./Place";
@@ -94,9 +94,9 @@ function DeviceView({ d, canEdit, isAdmin, wrap, onDeleted, onSelect }:
                 makeModel(d.manufacturer, d.model)].filter(Boolean).join(" · ")}
             </div>
             {d.parent && (
-              <div className="sub">{t("card.attachedto")}{" "}
+              <div className="sub">{t(d.connection === "virtual" ? "card.vmon" : "card.attachedto")}{" "}
                 <button className="link" onClick={() => onSelect({ kind: "device", id: d.parent!.id })}>{d.parent.name}</button>
-                {d.connection && ` · ${connectionLabel(d.connection)}`}
+                {d.connection && d.connection !== "virtual" && ` · ${connectionLabel(d.connection)}`}
               </div>
             )}
           </div>
@@ -159,6 +159,17 @@ function DeviceView({ d, canEdit, isAdmin, wrap, onDeleted, onSelect }:
   );
 }
 
+/** Why a field is greyed out: NetBox owns it, so a change here would be overwritten at the next sync. */
+function NetboxOwned({ d, what }: { d: DeviceCard; what: "name" | "data" }) {
+  return (
+    <div className="hint">
+      <span>{t(`nb.owned.${what}`)}{" "}
+        {d.netbox?.url && <a href={d.netbox.url} target="_blank" rel="noreferrer">{t("nb.openinnetbox")} <IconLink /></a>}
+      </span>
+    </div>
+  );
+}
+
 function EditHead({ d, wrap, onDone }: { d: DeviceCard; wrap: Wrap; onDone: () => void }) {
   const [name, setName] = useState(d.name);
   const [kind, setKind] = useState(d.kind);
@@ -169,7 +180,7 @@ function EditHead({ d, wrap, onDone }: { d: DeviceCard; wrap: Wrap; onDone: () =
   return (
     <div className="edit-head">
       <input className="title-input" value={name} disabled={fromNetbox} onChange={(e) => setName(e.target.value)} autoFocus />
-      {!fromNetbox && <NextName kind={kind} onUse={setName} />}
+      {fromNetbox ? <NetboxOwned d={d} what="name" /> : <NextName kind={kind} onUse={setName} />}
       <label>{t("card.kind")}<KindInput value={kind} onChange={setKind} /></label>
       <label>{t("card.description")}<textarea rows={3} value={desc} onChange={(e) => setDesc(e.target.value)} /></label>
       <label>{t("card.icon")}
@@ -255,6 +266,7 @@ function DeviceData({ d, canEdit, wrap }: { d: DeviceCard; canEdit: boolean; wra
     <section>
       <h3>{t("dev.title")}</h3>
       <div className="person-form compact">
+        {fromNetbox && <NetboxOwned d={d} what="data" />}
         {(["manufacturer", "model", "serial"] as const).map((k) => (
           <label key={k}>{t(`dev.${k}`)}<input value={f[k]} disabled={fromNetbox} onChange={(e) => setF({ ...f, [k]: e.target.value })} /></label>
         ))}
