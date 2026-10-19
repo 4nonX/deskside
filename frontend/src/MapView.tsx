@@ -174,8 +174,11 @@ function treeLayout(nodes: Node<NodeData>[], edges: GraphEdge[]) {
 
   const measure = (id: string): Box => {
     const children = [...(kids.get(id) ?? [])].sort(order);
-    const leaves = children.filter((c) => !(kids.get(c)?.length));
-    const subs = children.filter((c) => kids.get(c)?.length).map((c) => ({ id: c, box: measure(c) }));
+    // Switches and hosts are branches of the network even when nothing hangs below them in the drawing
+    // (a hypervisor's VMs are inside its box), so they never end up in a column of desks.
+    const branch = (c: string) => !!kids.get(c)?.length || byId.get(c)!.data.inner.length > 0 || byId.get(c)!.data.n.type === "switch";
+    const leaves = children.filter((c) => !branch(c));
+    const subs = children.filter(branch).map((c) => ({ id: c, box: measure(c) }));
     const cols = leaves.length ? Math.min(leaves.length, Math.max(1, Math.ceil(Math.sqrt(leaves.length / 2.5)))) : 0;
     const perCol = Math.ceil(leaves.length / Math.max(cols, 1));
     const columns = Array.from({ length: cols }, (_, i) => leaves.slice(i * perCol, (i + 1) * perCol));

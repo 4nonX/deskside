@@ -316,6 +316,8 @@ class Graph:
             votes = Counter()
             if sw in switch_seen:
                 votes[switch_seen[sw]] += 100
+            if sw.startswith("d:") and int(sw[2:]) in mgmt_seen:      # a switch's own management address
+                votes[mgmt_seen[int(sw[2:])]] += 100
             for dev_id, (dsw, _) in documented.items():
                 s = best.get(f"d:{dev_id}")
                 if dsw == sw and s is not None and s.switch and s.port:
@@ -370,6 +372,8 @@ class Graph:
         # Management interfaces: a thin second line, the device stays where its data port is.
         for dev_id in set(mgmt_seen) | set(self.mgmt_doc):
             sw, port = mgmt_seen.get(dev_id) or self.mgmt_doc[dev_id]
+            if self.nodes.get(f"d:{dev_id}", {}).get("type") == "switch":
+                continue                       # a switch's own address already placed the switch above
             if f"d:{dev_id}" in self.nodes or f"d:{dev_id}" in placed:
                 self._edge(sw, self._dev_node(self.devices[dev_id]), "mgmt", label=port)
 

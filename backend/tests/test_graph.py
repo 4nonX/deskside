@@ -91,3 +91,14 @@ def test_without_netbox_and_with_lldp():
     assert edges[("sw:core", "sw:edge")]["label"] == "Gi24"
     assert edges[("sw:core", "d:1")]["label"] == "Gi3" and ("sw:edge", "u:" + M(9)) in edges
     assert "internet" not in nodes
+
+
+def test_switch_placed_by_its_own_management_address():
+    nb = FakeNb()
+    nb.devices[4] = {"name": "desk-sw2", "role": {"name": "Switch"}}
+    nb.ifaces[8] = If(8, 4, "mgmt0", mgmt=True, macs=[M(0x50)])
+    devs = [Dev(9, "desk-sw2", "Switch", macs=[M(0x50)], labels={M(0x50): "mgmt0"})]
+    seen = [Seen(M(0x50), "10.0.10.186", "core", "GigabitEthernet9", port_mac_count=4)]
+    g, nodes, edges = build(devs, seen, netbox=nb, options={"internet": False})
+    assert edges[("sw:core", "d:9")]["kind"] == "inferred" and edges[("sw:core", "d:9")]["label"] == "GigabitEthernet9"
+    assert not [e for e in g["edges"] if e["kind"] == "mgmt" and e["target"] == "d:9"]
