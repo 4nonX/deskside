@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Node
+node_modules/
+dist/
+
+# Local configuration and data. Never commit real settings, secrets or databases.
+config.yaml
+config.local.yaml
+.env
+*.env
+secrets/
+data/
+*.db
+*.sqlite
+*.sqlite3
+
+# Editors and OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
