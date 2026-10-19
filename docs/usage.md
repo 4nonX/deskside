@@ -71,6 +71,13 @@ How each line comes about:
 | Dashed yellow | Derived, not documented: a switch without a documented uplink, placed where its devices are seen |
 | Dotted, around the side | A management port (iLO, iDRAC, IPMI). It never decides where a device is drawn |
 
+The map never hides a contradiction or invents a cable:
+
+- **Shared port.** Several devices seen on one switch port that leads to no documented switch are drawn behind a "shared port" box: a small switch, a phone with a PC port or an access point sits there and is not documented yet.
+- **Conflict.** If NetBox places a device somewhere the switch tables contradict (NetBox says it is on an office switch, the core switch sees it on a port that does not lead there), the device stays where NetBox puts it and is marked in yellow with where it is actually seen. The same applies to a switch whose own address appears on a different port than its documented uplink.
+- **A device assigned to a workstation by name but plugged into its own switch port** (a network printer named after the desk) is drawn on its port. Only virtual machines and peripherals without a network connection of their own are drawn with their device; the dotted line for those means "assigned", not "cabled".
+- **Addresses next to a known one.** Switches and access points often use a few consecutive MAC addresses. An address without an IP that differs from a known device's address only in the last byte (by up to 3) counts as that device.
+
 Devices that hang off one switch are packed into columns along a shared line, sorted by port; switches, hypervisors and workstations with opened peripherals follow to the right as their own branches. The port and address are shown in each box. Peripherals are folded into their device (the `+3` button opens them, or **Show peripherals** opens all). More than three unknown addresses on one port become a single box you can open.
 
 Search highlights matches and zooms to them; a virtual machine or a folded peripheral marks the box it is in. Live updates keep the view where you left it. Click any box to open the device card. **Not in the map** lists devices that no switch sees right now and that NetBox does not place either.

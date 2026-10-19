@@ -137,7 +137,9 @@ def test_peripherals_relations_and_graph(client):
     assert [r["name"] for r in client.get("/api/devices", params={"q": "SN-1"}).json()["rows"]] == ["WS07 monitor"]
     graph = client.get("/api/graph").json()
     edges = {(e["source"], e["target"]): e for e in graph["edges"]}
-    assert edges[("sw:core", f"d:{pc}")]["label"] == "GigabitEthernet9"
+    # the PC and an unknown printer share the port: one shared connection, both behind it
+    seg = "seg:sw:core:GigabitEthernet9"
+    assert edges[("sw:core", seg)]["label"] == "GigabitEthernet9" and (seg, f"d:{pc}") in edges
     assert (f"d:{pc}", f"d:{dock}") in edges and (f"d:{dock}", f"d:{mon}") in edges
     assert client.put("/api/kinds/monitor", json={"icon": "device-desktop"}).status_code == 200
     assert {k["kind"]: k["icon"] for k in client.get("/api/kinds").json()}["monitor"] == "device-desktop"

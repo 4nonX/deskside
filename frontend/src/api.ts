@@ -54,9 +54,11 @@ export interface Segment {
 }
 export interface KindItem { kind: string; icon: string; devices: number }
 export interface GraphNode {
-  id: string; type: "device" | "switch" | "unknown" | "group" | "internet" | "vpn"; device_id: number | null; name: string | null;
+  id: string; type: "device" | "switch" | "unknown" | "group" | "internet" | "vpn" | "segment"; device_id: number | null; name: string | null;
   kind?: string; icon?: string; online: boolean | null; ip?: string | null; mac?: string; vendor?: string | null;
   managed?: boolean; uplink_undocumented?: boolean; gateway?: boolean; rack?: string; members?: GraphNode[];
+  count?: number;              // segment: devices sharing the port
+  conflict?: { switch: string; port: string; doc_switch: string; doc_port: string };   // live view contradicts NetBox
 }
 export interface GraphEdge {
   id: string; source: string; target: string; kind: "link" | "uplink" | "port" | "behind" | "inferred" | "virtual" | "attached" | "wan" | "mgmt" | "vpn";

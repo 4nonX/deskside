@@ -52,6 +52,14 @@ class Seen:
     port_mac_count: int | None = None
 
 
+def _adjacent(mac: str, owner: dict[str, int], spread: int = 3) -> int | None:
+    """The device owning an address that differs from this one only in the last byte, by at most ``spread``."""
+    head, last = mac[:15], int(mac[15:], 16)
+    hits = {owner[f"{head}{last + d:02X}"] for d in range(-spread, spread + 1)
+            if d and 0 <= last + d <= 255 and f"{head}{last + d:02X}" in owner}
+    return hits.pop() if len(hits) == 1 else None
+
+
 def _same_port(a: str, b: str) -> bool:
     return bool({v.lower() for v in port_variants(a)} & {v.lower() for v in port_variants(b)})
 
@@ -200,6 +208,13 @@ class Graph:
     # --- building ----------------------------------------------------------------------------
     def build(self) -> dict[str, Any]:
         owner = {m: d.id for d in self.devices.values() for m in d.macs}
+        # Switches and access points answer from a few consecutive MAC addresses (base MAC, one per port or
+        # VLAN). An address without an IP right next to a known device's address is that device.
+        for sg in self.seen:
+            if sg.mac not in owner and not sg.ip:
+                near = _adjacent(sg.mac, owner)
+                if near is not None:
+                    owner[sg.mac] = near
         managed = {s.switch for s in self.seen if s.switch}
         for n in self.neighbors:
             managed.add(n.switch)
@@ -279,6 +294,18 @@ class Graph:
                     return v
             return None
 
+        def reaches(sw: str, port: str, target: str) -> bool:
+            """Whether traffic seen on this port can come from the target switch, by the switch links."""
+            start = below(sw, port)
+            todo, seen = ([start] if start else []), set()
+            while todo:
+                u = todo.pop()
+                if u == target:
+                    return True
+                seen.add(u)
+                todo += [v for _, v in downstream.get(u, []) if v not in seen]
+            return False
+
         placed: dict[str, tuple[str, str | None, str]] = {}      # node -> (parent, port label, edge kind)
         unknown_at: dict[tuple[str, str | None], list[str]] = defaultdict(list)
         switch_seen: dict[str, tuple[str, str]] = {}           # unmanaged switch -> where its own address shows up
@@ -286,7 +313,7 @@ class Graph:
             dev = self.devices.get(int(key[2:])) if key.startswith("d:") else None
             if dev is not None:
                 self._dev_node(dev, online=True, ip=s.ip)
-                if dev.parent_id in self.devices:
+                if dev.parent_id in self.devices and (dev.connection == "virtual" or not (s.switch and s.port)):
                     up, hops = self.devices[dev.parent_id], 0
                     while up is not None and hops < 5:            # make sure the chain up to the host is drawn
                         self._dev_node(up)
@@ -303,6 +330,9 @@ class Graph:
             down = below(sw, s.port)
             if doc and doc[0] != sw and not self.nodes[doc[0]].get("managed"):
                 placed[key] = (doc[0], doc[1], "port")
+                if not reaches(sw, s.port, doc[0]):
+                    self.nodes[key]["conflict"] = {"switch": self.nodes[sw]["name"], "port": s.port,
+                                                   "doc_switch": self.nodes[doc[0]]["name"], "doc_port": doc[1]}
             elif down:
                 placed[key] = (down, None, "behind")
             else:
@@ -340,6 +370,14 @@ class Graph:
                 else:
                     self._edge(up, sw, "inferred", label=port, alias=self.aliases.get((self.nodes[up]["name"], port)))
 
+        # A switch whose own address shows up on another port than its documented uplink: say so.
+        uplink_of = {v: (u, p) for u, items in downstream.items() for p, v in items}
+        for nid, (up, port) in uplink_of.items():
+            own = switch_seen.get(nid) or (mgmt_seen.get(int(nid[2:])) if nid.startswith("d:") else None)
+            if own and own[0] == up and not _same_port(own[1], port):
+                self.nodes[nid]["conflict"] = {"switch": self.nodes[up]["name"], "port": own[1],
+                                               "doc_switch": self.nodes[up]["name"], "doc_port": port}
+
         # The way out: Internet -> WAN device -> gateway (or its host) -> the switch it is plugged into.
         if anchor is not None:
             aid = self._dev_node(anchor)
@@ -365,6 +403,26 @@ class Graph:
                     self.nodes[vid] = {"id": vid, "type": "vpn", "device_id": None, "name": t["name"],
                                        "online": None, "ip": t.get("prefix")}
                     self._edge(aid, vid, "vpn", via=gw.name if gw is not anchor else None)
+
+        # Several devices seen on one port that leads to no documented switch: a desk switch, a phone with a
+        # PC port or an access point sits in between. One shared connection, not separate cables.
+        shared: dict[tuple[str, str], list[str]] = defaultdict(list)
+        for key, (parent, port, kind) in placed.items():
+            if kind == "port" and port and key in best and self.nodes[parent].get("managed"):
+                shared[(parent, port)].append(key)
+        for (parent, port), keys in shared.items():
+            if len(keys) < 2:
+                continue
+            sid = f"seg:{parent}:{port}"
+            self.nodes[sid] = {"id": sid, "type": "segment", "device_id": None, "name": None, "online": None,
+                               "count": len(keys)}
+            placed[sid] = (parent, port, "port")
+            for k in keys:
+                placed[k] = (sid, None, "behind")
+        unknown_at = defaultdict(list)
+        for key, (parent, port, _) in placed.items():
+            if self.nodes[key]["type"] == "unknown":
+                unknown_at[(parent, port)].append(key)
 
         for key, (parent, port, kind) in placed.items():
             if self.nodes[key]["type"] == "unknown" and len(unknown_at[(parent, port)]) > GROUP_UNKNOWN_OVER:
@@ -392,6 +450,8 @@ class Graph:
         # Peripherals and virtual machines hang off the device they belong to.
         def attach(dev: Dev, depth: int = 0) -> None:
             for child in sorted((c for c in self.devices.values() if c.parent_id == dev.id), key=lambda c: c.name.lower()):
+                if f"d:{child.id}" in placed:
+                    continue                   # on a switch port of its own, drawn there
                 cid = self._dev_node(child)
                 self._edge(f"d:{dev.id}", cid, "virtual" if child.connection == "virtual" else "attached",
                            label=child.connection or None)

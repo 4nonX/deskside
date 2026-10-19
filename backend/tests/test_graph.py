@@ -120,3 +120,42 @@ def test_racks_list_mounted_devices_top_down_including_passive_ones():
         ("patch-1", None), ("core", "sw:core"), ("hv1", "d:3"), ("ups", "d:8")]
     assert nodes["d:8"]["rack"] == "rack:1"            # not cabled, but it has its place in the rack
     assert "ups" not in [n["name"] for n in g["unplaced"]]
+
+
+def test_network_peripheral_on_own_port_shared_ports_and_conflicts():
+    devs = [Dev(1, "WS03", "workstation", macs=[M(3)]), Dev(2, "WS03-Printer", "printer", parent_id=1, macs=[M(4)]),
+            Dev(3, "WS03-Monitor", "monitor", parent_id=1, connection="dp"),
+            Dev(5, "WS05", "workstation", macs=[M(5)]), Dev(6, "WS06", "workstation", macs=[M(6)])]
+    seen = [Seen(M(3), "10.0.10.103", "core", "GigabitEthernet3", port_mac_count=1),
+            Seen(M(4), "10.0.10.13", "core", "GigabitEthernet14", port_mac_count=1),
+            Seen(M(5), "10.0.10.105", "core", "GigabitEthernet41", port_mac_count=3),
+            Seen(M(6), "10.0.10.106", "core", "GigabitEthernet41", port_mac_count=3),
+            Seen(M(7), "10.0.10.150", "core", "GigabitEthernet41", port_mac_count=3)]
+    g, nodes, edges = build(devs, seen, options={"internet": False})
+    # the printer belongs to WS03 by name, but it has a port of its own
+    assert edges[("sw:core", "d:2")]["label"] == "GigabitEthernet14" and ("d:1", "d:2") not in edges
+    assert edges[("d:1", "d:3")]["kind"] == "attached"
+    # three addresses on port 41: something sits in between
+    seg = "seg:sw:core:GigabitEthernet41"
+    assert nodes[seg]["count"] == 3 and edges[("sw:core", seg)]["label"] == "GigabitEthernet41"
+    assert {t for (s, t) in edges if s == seg} == {"d:5", "d:6", "u:" + M(7)}
+
+
+def test_documented_place_that_the_switch_contradicts_is_flagged():
+    nb = FakeNb()          # core GE2 -> desk-sw; floor-sw has no uplink; WS08 documented on floor-sw p8
+    nb.ifaces[9] = If(9, 1, "GE1", [{"name": "up", "device": {"id": 3, "name": "floor-sw"}}])
+    nb.ifaces[10] = If(10, 3, "up", [{"name": "GE1", "device": {"id": 1, "name": "core"}}])
+    devs = [Dev(2, "WS08", "workstation", macs=[M(8)])]
+    seen = [Seen(M(8), "10.0.10.108", "core", "GigabitEthernet2", port_mac_count=4)]     # but seen behind GE2
+    g, nodes, edges = build(devs, seen, netbox=nb, options={"internet": False})
+    assert edges[("sw:floor-sw", "d:2")]["label"] == "p8"
+    assert nodes["d:2"]["conflict"] == {"switch": "core", "port": "GigabitEthernet2", "doc_switch": "floor-sw", "doc_port": "p8"}
+
+
+def test_neighbouring_mac_belongs_to_the_switch_and_a_moved_uplink_is_flagged():
+    nb = FakeNb()          # NetBox: core GE2 -> desk-sw
+    devs = [Dev(9, "desk-sw", "Switch", macs=["00:00:5E:00:53:A0"])]
+    seen = [Seen("00:00:5E:00:53:A1", None, "core", "GigabitEthernet7", port_mac_count=3)]   # base MAC + 1, no IP
+    g, nodes, edges = build(devs, seen, netbox=nb, options={"internet": False})
+    assert not [n for n in g["nodes"] if n["type"] == "unknown"]
+    assert nodes["d:9"]["conflict"]["port"] == "GigabitEthernet7" and nodes["d:9"]["conflict"]["doc_port"] == "GE2"

@@ -31,16 +31,23 @@ function nodeHeight(d: NodeData): number {
 const MapNodeView = memo(function MapNodeView({ data }: NodeProps<Node<NodeData>>) {
   const { n, inner, hits, dim, hidden, open, icon, iconFor, onToggle, onOpen } = data;
   const title = n.type === "group" ? t("map.group", { n: n.members?.length ?? 0 })
-    : n.type === "internet" ? t("map.internet") : n.name || n.ip || n.mac;
+    : n.type === "internet" ? t("map.internet") : n.type === "segment" ? t("map.segment", { n: n.count ?? 0 })
+    : n.name || n.ip || n.mac;
   const sub = n.type === "switch"
-    ? [data.port, n.managed ? t("map.managed") : n.uplink_undocumented ? t("map.noUplink") : t("map.unmanaged")]
+    ? [data.port, n.conflict ? t("map.conflict", { port: portName(n.conflict.port) })
+        : n.managed ? t("map.managed") : n.uplink_undocumented ? t("map.noUplink") : t("map.unmanaged")]
     : n.type === "group" ? [data.port, t("map.groupHint")]
     : n.type === "vpn" ? [t("map.vpn"), data.port]
+    : n.type === "segment" ? [data.port, t("map.segmentHint")]
+    : n.conflict ? [t("map.conflict", { port: portName(n.conflict.port) }), n.ip]
     : inner.length ? [data.port, t("map.vms", { n: inner.length }), inner.some((v) => v.gateway) ? t("map.gateway") : ""]
     : [data.port, n.ip || n.vendor || n.kind];
   return (
-    <div className={`gnode ${n.type} ${inner.length ? "host" : ""} ${hits.has(n.id) ? "hit" : ""} ${dim ? "dim" : ""} ${n.online === false ? "off" : ""}`}
-         title={[n.name, n.kind, n.ip, n.mac, n.vendor].filter(Boolean).join(" · ")}>
+    <div className={`gnode ${n.type} ${inner.length ? "host" : ""} ${n.conflict ? "conflict" : ""} ${hits.has(n.id) ? "hit" : ""} ${dim ? "dim" : ""} ${n.online === false ? "off" : ""}`}
+         title={[n.name, n.kind, n.ip, n.mac, n.vendor,
+                 n.conflict ? t("map.conflictLong", { seen: `${n.conflict.switch} ${portName(n.conflict.port)}`,
+                                                      doc: `${n.conflict.doc_switch} ${portName(n.conflict.doc_port)}` }) : "",
+                 n.type === "segment" ? t("map.segmentLong") : ""].filter(Boolean).join(" · ")}>
       <Handle type="target" id="top" position={Position.Top} />
       <Handle type="target" id="left" position={Position.Left} />
       <Handle type="target" id="right-in" position={Position.Right} />
@@ -348,7 +355,7 @@ function Diagram({ graph, q, onOpen, showAll }: { graph: NetGraph; q: string; on
 
   const { nodes, edges, focus } = useMemo(() => {
     const iconFor = (n: GraphNode) => n.type === "internet" ? "cloud" : n.type === "group" ? "stack-2"
-      : n.type === "unknown" ? "question-mark" : n.type === "vpn" ? "lock"
+      : n.type === "unknown" ? "question-mark" : n.type === "vpn" ? "lock" : n.type === "segment" ? "topology-star-3"
       : iconOf(n.kind || (n.type === "switch" ? "switch" : ""), n.icon);
     // Virtual machines are drawn inside their host; peripherals stay folded into their device unless opened.
     const inner = new Map<string, string[]>();
@@ -459,6 +466,7 @@ export function MapView({ q, tick, onOpen }: { q: string; tick: number; onOpen: 
           <span><i className="lg behind" />{t("map.lg.behind")}</span>
           <span><i className="lg inferred" />{t("map.lg.inferred")}</span>
           <span><i className="lg mgmt" />{t("map.lg.mgmt")}</span>
+          <span><i className="lg attached" />{t("map.lg.attached")}</span>
         </div>
         <div className="gmap-actions">
           {peripherals && (

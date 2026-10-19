@@ -251,6 +251,10 @@ ul.events.proposals li { grid-template-columns: 90px 150px 1fr auto; align-items
 .lg.inferred { border-top-style: dashed; border-color: var(--warn-line); }
 .lg.wan { border-top-width: 3px; border-color: var(--accent); }
 .lg.mgmt { border-top-style: dotted; border-top-width: 1.5px; }
+.lg.attached { border-top-style: dotted; border-top-width: 1px; opacity: .7; }
+.gnode.segment { border-style: dashed; border-color: var(--warn-line); }
+.gnode.conflict { border-color: var(--warn-line); border-width: 2px; }
+.gnode.conflict .gnode-sub { color: var(--warn-line); }
 .gmap-actions { display: flex; gap: 10px; align-items: center; }
 .gmap-actions .check { margin: 0; }
 .gmap-body { display: flex; gap: 10px; min-height: 0; }
