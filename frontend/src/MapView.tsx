@@ -30,7 +30,8 @@ function nodeHeight(d: NodeData): number {
 
 const MapNodeView = memo(function MapNodeView({ data }: NodeProps<Node<NodeData>>) {
   const { n, inner, hits, dim, hidden, open, icon, iconFor, onToggle, onOpen } = data;
-  const title = n.type === "group" ? t("map.group", { n: n.members?.length ?? 0 })
+  const title = n.type === "group" ? t(n.documented ? "map.groupDoc" : "map.group", { n: n.members?.length ?? 0 })
+    : n.type === "subnet" ? t("map.subnet", { prefix: n.name ?? "" })
     : n.type === "internet" ? t("map.internet") : n.type === "segment" ? t("map.segment", { n: n.count ?? 0 })
     : n.name || n.ip || n.mac;
   const sub = n.type === "switch"
@@ -39,6 +40,7 @@ const MapNodeView = memo(function MapNodeView({ data }: NodeProps<Node<NodeData>
     : n.type === "group" ? [data.port, t("map.groupHint")]
     : n.type === "vpn" ? [t("map.vpn"), data.port]
     : n.type === "segment" ? [data.port, t("map.segmentHint")]
+    : n.type === "subnet" ? [n.outside ? t("map.outside") : "", t("map.asDocumented")]
     : n.conflict ? [t("map.conflict", { port: portName(n.conflict.port) }), n.ip]
     : inner.length ? [data.port, t("map.vms", { n: inner.length }), inner.some((v) => v.gateway) ? t("map.gateway") : ""]
     : [data.port, n.ip || n.vendor || n.kind];
@@ -47,7 +49,8 @@ const MapNodeView = memo(function MapNodeView({ data }: NodeProps<Node<NodeData>
          title={[n.name, n.kind, n.ip, n.mac, n.vendor,
                  n.conflict ? t("map.conflictLong", { seen: `${n.conflict.switch} ${portName(n.conflict.port)}`,
                                                       doc: `${n.conflict.doc_switch} ${portName(n.conflict.doc_port)}` }) : "",
-                 n.type === "segment" ? t("map.segmentLong") : ""].filter(Boolean).join(" · ")}>
+                 n.type === "segment" ? t("map.segmentLong") : "", n.description ?? "",
+                 n.type === "subnet" && n.outside ? t("map.outsideLong") : ""].filter(Boolean).join(" · ")}>
       <Handle type="target" id="top" position={Position.Top} />
       <Handle type="target" id="left" position={Position.Left} />
       <Handle type="target" id="right-in" position={Position.Right} />
@@ -142,6 +145,7 @@ function edgeStyle(e: GraphEdge): Partial<Edge> {
     case "vpn": return { style: { ...base, stroke: "var(--accent)", strokeDasharray: "6 4" } };
     case "inferred": return { style: { ...base, stroke: "var(--warn-line)", strokeDasharray: "6 4" } };
     case "behind": return { style: { ...base, strokeDasharray: "4 4" } };
+    case "subnet": return { style: { ...base, stroke: "var(--warn-line)", strokeDasharray: "8 4" } };
     case "mgmt": return { style: { ...base, strokeWidth: 1, strokeDasharray: "2 3" } };
     case "attached": return { style: { ...base, strokeWidth: 1, strokeDasharray: "1 3" } };
     default: return { style: base };
@@ -153,6 +157,7 @@ function portText(e: GraphEdge | undefined, self?: string | null): string {
   if (e.kind === "inferred") return [portName(e.label), t("map.inferred")].filter(Boolean).join(" · ");
   if (e.kind === "uplink") return [portName(e.target_label), e.alias].filter(Boolean).join(" · ");
   if (e.kind === "vpn") return e.via ? t("map.via", { name: e.via }) : "";
+  if (e.kind === "subnet") return "";
   if (e.kind === "attached" || e.kind === "virtual" || e.kind === "wan") return "";
   if (e.kind === "link") return [portName(e.label), e.alias].filter(Boolean).join(" · ");
   // A device on a switch port: where that port leads (room, the desk it serves), then the port.
@@ -170,7 +175,7 @@ function natural(a: string, b: string): number {
 }
 
 // Which edge makes a node's place in the tree, if it has several: the way traffic flows wins.
-const TREE_ORDER: GraphEdge["kind"][] = ["wan", "uplink", "link", "port", "behind", "inferred", "vpn", "attached"];
+const TREE_ORDER: GraphEdge["kind"][] = ["wan", "uplink", "link", "port", "behind", "inferred", "subnet", "vpn", "attached"];
 const PAD = 30, TITLE = 32, ROW_GAP = 8, PASSIVE = 18, LANE0 = 18, LANE_STEP = 11, BLOCK_GAP = 120;
 
 /**
@@ -355,7 +360,7 @@ function Diagram({ graph, q, onOpen, showAll }: { graph: NetGraph; q: string; on
 
   const { nodes, edges, focus } = useMemo(() => {
     const iconFor = (n: GraphNode) => n.type === "internet" ? "cloud" : n.type === "group" ? "stack-2"
-      : n.type === "unknown" ? "question-mark" : n.type === "vpn" ? "lock" : n.type === "segment" ? "topology-star-3"
+      : n.type === "unknown" ? "question-mark" : n.type === "vpn" ? "lock" : n.type === "segment" ? "topology-star-3" : n.type === "subnet" ? "network"
       : iconOf(n.kind || (n.type === "switch" ? "switch" : ""), n.icon);
     // Virtual machines are drawn inside their host; peripherals stay folded into their device unless opened.
     const inner = new Map<string, string[]>();
@@ -467,6 +472,7 @@ export function MapView({ q, tick, onOpen }: { q: string; tick: number; onOpen: 
           <span><i className="lg inferred" />{t("map.lg.inferred")}</span>
           <span><i className="lg mgmt" />{t("map.lg.mgmt")}</span>
           <span><i className="lg attached" />{t("map.lg.attached")}</span>
+          {graph.nodes.some((n) => n.type === "subnet") && <span><i className="lg subnet" />{t("map.lg.subnet")}</span>}
         </div>
         <div className="gmap-actions">
           {peripherals && (

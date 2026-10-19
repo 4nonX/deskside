@@ -50,6 +50,7 @@ class FakeNetbox:
         lists = {"dcim/devices/": self.devices, "dcim/interfaces/": self.ifaces, "dcim/mac-addresses/": self.macs,
                  "extras/custom-fields/": self.custom_fields, "dcim/locations/": self.locations,
                  "virtualization/virtual-machines/": getattr(self, "vms", []),
+                 "ipam/prefixes/": getattr(self, "prefixes", []),
                  "virtualization/interfaces/": getattr(self, "vm_ifaces", []),
                  "dcim/front-ports/": self.fronts, "ipam/ip-addresses/": self.ips}
         if path in lists:

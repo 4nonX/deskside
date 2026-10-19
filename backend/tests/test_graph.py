@@ -159,3 +159,26 @@ def test_neighbouring_mac_belongs_to_the_switch_and_a_moved_uplink_is_flagged():
     g, nodes, edges = build(devs, seen, netbox=nb, options={"internet": False})
     assert not [n for n in g["nodes"] if n["type"] == "unknown"]
     assert nodes["d:9"]["conflict"]["port"] == "GigabitEthernet7" and nodes["d:9"]["conflict"]["doc_port"] == "GE2"
+
+
+def test_network_in_front_of_the_gateway_from_netbox():
+    nb = FakeNb()
+    nb.devices[30] = {"name": "modem", "role": {"name": "Modem"}, "primary_ip4": {"address": "192.0.2.1/24"}}
+    nb.devices[31] = {"name": "alarm", "role": {"name": "Alarm"}, "primary_ip4": {"address": "192.0.2.65/24"}}
+    nb.devices[32] = {"name": "WS03", "primary_ip4": {"address": "10.0.10.103/24"}}
+    nb.prefixes = [{"prefix": "192.0.2.0/24", "description": "in front of the firewall"}, {"prefix": "10.0.10.0/24"}]
+    nb.loose_ips = [{"address": "192.0.2.102", "description": "phone, desk unknown"}, {"address": "10.0.10.9", "description": "x"}]
+    ids = {"modem": 30, "alarm": 31, "ws03": 10}
+    nb.device_for = lambda name, macs, external_id=None: ids.get(name.lower())
+    devs = [Dev(1, "WS03", "workstation", macs=[M(3)]), Dev(4, "fw", "Firewall", macs=[M(0x31)]),
+            Dev(7, "modem", "Modem"), Dev(8, "alarm", "Alarm")]
+    seen = [Seen(M(3), "10.0.10.103", "core", "GigabitEthernet3", port_mac_count=1),
+            Seen(M(0x31), "10.0.10.250", "core", "GigabitEthernet32", port_mac_count=1)]
+    g, nodes, edges = build(devs, seen, netbox=nb)
+    net = "net:192.0.2.0/24"
+    assert edges[("d:7", net)]["kind"] == "subnet" and nodes[net]["outside"]
+    assert ("internet", "d:7") in edges and ("d:7", "d:4") in edges
+    assert (net, "d:8") in edges and nodes["d:8"]["online"] is None
+    assert (net, "d:1") not in edges                     # WS03 is on a switch port inside
+    group = nodes[f"g:{net}"]
+    assert [m["ip"] for m in group["members"]] == ["192.0.2.102"] and group["documented"]

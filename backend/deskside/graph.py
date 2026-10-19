@@ -15,6 +15,7 @@ uplink, instead of guessing.
 
 from __future__ import annotations
 
+import ipaddress
 import re
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field
@@ -84,6 +85,7 @@ class Graph:
         self.mgmt_macs: set[str] = set()
         self.mgmt_doc: dict[int, tuple[str, str]] = {}
         self.racks: list[dict[str, Any]] = []
+        self._in_subnet: set[str] = set()
         self._nb_node: Any = None
 
     # --- nodes -------------------------------------------------------------------------------
@@ -445,13 +447,14 @@ class Graph:
             if f"d:{dev_id}" in self.nodes or f"d:{dev_id}" in placed:
                 self._edge(sw, self._dev_node(self.devices[dev_id]), "mgmt", label=port)
 
+        self._subnets(self._wan_device(gw, anchor) if anchor is not None else None)
         self._build_racks()
 
         # Peripherals and virtual machines hang off the device they belong to.
         def attach(dev: Dev, depth: int = 0) -> None:
             for child in sorted((c for c in self.devices.values() if c.parent_id == dev.id), key=lambda c: c.name.lower()):
-                if f"d:{child.id}" in placed:
-                    continue                   # on a switch port of its own, drawn there
+                if f"d:{child.id}" in placed or f"d:{child.id}" in self._in_subnet:
+                    continue                   # on a switch port or in a network of its own, drawn there
                 cid = self._dev_node(child)
                 self._edge(f"d:{dev.id}", cid, "virtual" if child.connection == "virtual" else "attached",
                            label=child.connection or None)
@@ -479,6 +482,56 @@ class Graph:
                      for d in sorted(self.devices.values(), key=lambda d: d.name.lower())
                      if d.id not in shown and d.parent_id not in self.devices]
         return {"nodes": list(self.nodes.values()), "edges": self.edges, "unplaced": unplaced, "racks": self.racks}
+
+    def _subnets(self, wan: Dev | None) -> None:
+        """The network the WAN device opens in front of the gateway, from NetBox: its prefix, the devices whose
+        primary address lies in it, and addresses documented there that belong to no device yet.
+
+        deskside reads no switch or ARP table in front of the gateway, so everything here is as documented.
+        """
+        nb = self.nb
+        if nb is None or wan is None or not getattr(nb, "prefixes", None):
+            return
+        primary: dict[int, str] = {}
+        for d in self.devices.values():
+            nb_id = nb.device_for(d.name, d.macs, d.external_id)
+            addr = (((nb.devices.get(nb_id) or {}).get("primary_ip4") or {}).get("address") if nb_id else None)
+            if addr:
+                primary[d.id] = addr.split("/")[0]
+        wan_ip = primary.get(wan.id)
+        if not wan_ip:
+            return
+        connected = {e["target"] for e in self.edges if e["kind"] not in ("attached", "mgmt")}
+        for p in nb.prefixes:
+            try:
+                net = ipaddress.ip_network(p["prefix"], strict=False)
+                if ipaddress.ip_address(wan_ip) not in net:
+                    continue
+            except ValueError:
+                continue
+            sid = f"net:{p['prefix']}"
+            self.nodes[sid] = {"id": sid, "type": "subnet", "device_id": None, "name": p["prefix"],
+                               "description": p.get("description") or None, "online": None, "outside": True}
+            self._edge(f"d:{wan.id}", sid, "subnet", label=wan_ip)
+            for dev_id, addr in sorted(primary.items(), key=lambda x: ipaddress.ip_address(x[1])):
+                key = f"d:{dev_id}"
+                if dev_id == wan.id or key in connected or ipaddress.ip_address(addr) not in net:
+                    continue                   # the switch tables or a cable place it elsewhere
+                node = self._dev_node(self.devices[dev_id], ip=addr)
+                if not self.nodes[key].get("online"):
+                    self.nodes[key]["online"] = None     # not visible from here, so neither online nor offline
+                self._edge(sid, node, "subnet")
+                self._in_subnet.add(key)
+            loose = sorted((x for x in getattr(nb, "loose_ips", []) or []
+                            if x["address"] != wan_ip and ipaddress.ip_address(x["address"]) in net),
+                           key=lambda x: ipaddress.ip_address(x["address"]))
+            if loose:
+                gid = f"g:{sid}"
+                self.nodes[gid] = {"id": gid, "type": "group", "device_id": None, "online": None, "documented": True,
+                                   "members": [{"id": f"ip:{x['address']}", "type": "unknown", "device_id": None,
+                                                "ip": x["address"], "name": x.get("description") or None, "mac": None,
+                                                "online": None} for x in loose]}
+                self._edge(sid, gid, "subnet")
 
     def _build_racks(self) -> None:
         """Racks from NetBox with everything mounted in them, top to bottom, passive items included."""

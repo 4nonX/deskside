@@ -118,6 +118,8 @@ class Netbox:
         self.ips_by_device: dict[int, list[tuple[str, str]]] = {}   # device -> [(address, interface name)]
         self.ips_by_vm: dict[int, list[tuple[str, str]]] = {}
         self.tunnels: list[dict[str, Any]] = []
+        self.prefixes: list[dict[str, Any]] = []         # {"prefix", "description", "role"}
+        self.loose_ips: list[dict[str, Any]] = []        # IP objects not assigned to anything: {"address", "description"}
         self._front_for_rear: dict[int, dict[str, Any]] = {}
         self._seen: dict[int, str] = {}
         self.transport: httpx.AsyncBaseTransport | None = None   # tests plug in a fake NetBox here
@@ -161,12 +163,18 @@ class Netbox:
                 self._all(cl, "dcim/mac-addresses/"), self._all(cl, "extras/custom-fields/"))
             self.locations = await self._all(cl, "dcim/locations/") if self.import_rooms else []
             ips = await self._all(cl, "ipam/ip-addresses/")
+            prefixes = await self._all(cl, "ipam/prefixes/")
             vms = await self._all(cl, "virtualization/virtual-machines/") if self.import_vms else []
             vm_ifaces = await self._all(cl, "virtualization/interfaces/") if self.import_vms else []
             try:
                 terms = await self._all(cl, "vpn/tunnel-terminations/")
             except NetboxError:
                 terms = []                                  # NetBox before 3.7 has no VPN models
+        self.prefixes = [{"prefix": x["prefix"], "description": x.get("description") or "",
+                          "role": (x.get("role") or {}).get("name")} for x in prefixes]
+        self.loose_ips = [{"address": ip["address"].split("/")[0], "description": ip.get("description") or "",
+                           "status": (ip.get("status") or {}).get("value")}
+                          for ip in ips if not ip.get("assigned_object")]
         self.tunnels = []
         for t in terms:
             obj = t.get("termination") or {}
