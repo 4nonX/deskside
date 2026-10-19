@@ -3,6 +3,7 @@ import { ApiError, api, type DeviceCard, type EventItem, type Me, type NetInfo, 
 import { ago, datetime, t } from "./i18n";
 import { IconClose, IconEdit, IconPin, IconPlus, IconTrash, IconWarn } from "./icons";
 import { NamingWarnings, NextName, PeopleSection, PlaceSection } from "./Place";
+import { RemoteSection } from "./Remote";
 
 export type Selection = { kind: "device"; id: number } | { kind: "mac"; mac: string };
 
@@ -78,6 +79,8 @@ function DeviceView({ d, canEdit, isAdmin, wrap, onDeleted }:
         <div key={n.id} className="warning"><IconWarn /><div>{n.text}<div className="meta">{t("note.by", { author: n.author, t: ago(n.updated_at) })}</div></div></div>
       ))}
       <NamingWarnings warnings={d.naming_warnings} />
+
+      <RemoteSection d={d} canEdit={canEdit} wrap={wrap} />
 
       <PeopleSection d={d} canEdit={canEdit} wrap={wrap} />
       <PlaceSection d={d} canEdit={canEdit} wrap={wrap} />

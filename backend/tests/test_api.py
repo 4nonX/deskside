@@ -98,3 +98,19 @@ def test_next_free_name_respects_hosts_on_the_network(client):
     with client.app.state.db.session() as s:
         s.add(Sighting(mac="00:00:5E:00:53:01", hostname="ws01.example.org"))
     assert client.get("/api/naming").json()[0]["next"] == "WS02"
+
+
+def test_remote_entries_rdp_download_and_search(client):
+    dev = client.post("/api/devices", json={"name": "WS05", "kind": "workstation", "mac": "00:00:5e:00:53:05"}).json()["id"]
+    from deskside.db import Sighting
+    with client.app.state.db.session() as s:
+        s.add(Sighting(mac="00:00:5E:00:53:05", ip="10.0.10.105", hostname="ws05.example.org", online=True))
+    assert client.post(f"/api/devices/{dev}/remote", json={"tool": "rustdesk", "value": "987654321"}).status_code == 200
+    assert client.post(f"/api/devices/{dev}/remote", json={"tool": "rdp", "username": "EXAMPLE\\alice"}).status_code == 200
+    assert client.post(f"/api/devices/{dev}/remote", json={"tool": "rustdesk", "value": "1 2"}).status_code == 400
+    remote = {r["tool"]: r for r in client.get(f"/api/devices/{dev}").json()["remote"]}
+    assert remote["rustdesk"]["href"] == "rustdesk://connect/987654321"
+    rdp = client.get(remote["rdp"]["download"])
+    assert rdp.status_code == 200 and rdp.headers["content-type"].startswith("application/x-rdp")
+    assert "full address:s:ws05.example.org" in rdp.text and 'filename="WS05.rdp"' in rdp.headers["content-disposition"]
+    assert [r["name"] for r in client.get("/api/devices", params={"q": "987654321"}).json()["rows"]] == ["WS05"]

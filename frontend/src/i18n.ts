@@ -51,6 +51,11 @@ const en = {
   "dir.mobile": "Mobile", "dir.chat": "Chat", "dir.title": "Job title", "dir.search": "Search people …",
   "dir.showinactive": "Show people no longer in the directory", "dir.sync": "Sync directory now",
   "dir.synced": "Directory synced.", "dir.deleteconfirm": "Delete {name}?",
+  "remote.title": "Remote access", "remote.none": "No remote access configured.", "remote.add": "Add remote access",
+  "remote.tool": "Tool …", "remote.id": "ID", "remote.address": "Address (empty: use the device's current one)",
+  "remote.user": "User name (optional)", "remote.label": "Label (optional)",
+  "remote.copy": "Copy {value}", "remote.copied": "Copied",
+  "remote.copyonly": "{tool} cannot be opened by a link here; the button copies the ID instead.",
 };
 
 type Key = keyof typeof en;
@@ -106,6 +111,11 @@ const de: Partial<Record<Key, string>> = {
   "dir.mobile": "Mobil", "dir.chat": "Chat", "dir.title": "Funktion", "dir.search": "Personen suchen …",
   "dir.showinactive": "Auch Personen zeigen, die nicht mehr im Verzeichnis sind", "dir.sync": "Verzeichnis jetzt abgleichen",
   "dir.synced": "Verzeichnis abgeglichen.", "dir.deleteconfirm": "{name} löschen?",
+  "remote.title": "Fernzugriff", "remote.none": "Kein Fernzugriff eingerichtet.", "remote.add": "Fernzugriff hinzufügen",
+  "remote.tool": "Werkzeug …", "remote.id": "ID", "remote.address": "Adresse (leer: aktuelle Adresse des Geräts)",
+  "remote.user": "Benutzername (optional)", "remote.label": "Bezeichnung (optional)",
+  "remote.copy": "{value} kopieren", "remote.copied": "Kopiert",
+  "remote.copyonly": "{tool} lässt sich hier nicht per Link öffnen; der Knopf kopiert stattdessen die ID.",
 };
 
 const tables: Record<string, Partial<Record<Key, string>>> = { en, de };

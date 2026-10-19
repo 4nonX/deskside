@@ -47,6 +47,11 @@ export interface PersonInput {
   department_id: number | null;
 }
 export interface PersonLink extends Person { link_id: number; primary: boolean }
+export interface RemoteTool { key: string; label: string; needs: "id" | "address"; launch: "link" | "rdp" | "copy" }
+export interface RemoteEntry {
+  id: number | null; tool: string; tool_label: string; label: string; value: string; username: string;
+  href: string | null; download: string | null; copy: string | null; needs: string; automatic: boolean;
+}
 export interface Convention { key: string; pattern: string; kind: string; ip: string | null; next: string }
 
 export interface Note { id: number; text: string; pinned: boolean; author: string; created_at: number; updated_at: number }
@@ -56,7 +61,7 @@ export interface DeviceCard {
   type: "device"; id: number; name: string; kind: string; description: string;
   created_at: number; updated_at: number;
   room: Room | null; department: { id: number; name: string } | null; people: PersonLink[];
-  contacts_visible: boolean; naming_warnings: string[];
+  contacts_visible: boolean; naming_warnings: string[]; remote: RemoteEntry[];
   interfaces: DeviceInterface[]; notes: Note[]; events: EventItem[];
 }
 export interface UnknownCard extends NetInfo { type: "unknown"; mac: string; events: EventItem[]; suggested_name: string | null }
@@ -117,6 +122,10 @@ export const api = {
   setPrimary: (linkId: number) => request("PATCH", `/device-people/${linkId}`, { primary: true }),
   unlinkPerson: (linkId: number) => request("DELETE", `/device-people/${linkId}`),
   naming: () => request<Convention[]>("GET", "/naming"),
+  remoteTools: () => request<RemoteTool[]>("GET", "/remote-tools"),
+  addRemote: (deviceId: number, b: { tool: string; value: string; username: string; label: string }) =>
+    request("POST", `/devices/${deviceId}/remote`, b),
+  deleteRemote: (id: number) => request("DELETE", `/remote/${id}`),
   directorySync: () => request<{ ok: boolean; error: string | null }>("POST", "/directory/sync", {}),
   deleteDevice: (id: number) => request("DELETE", `/devices/${id}`),
   addInterface: (id: number, mac: string, label = "") => request("POST", `/devices/${id}/interfaces`, { mac, label }),

@@ -134,7 +134,8 @@ def build_rows(s: Session, aliases: dict, contacts: bool) -> list[dict[str, Any]
     owned: set[str] = set()
     devices = s.scalars(select(Device).options(
         selectinload(Device.interfaces), selectinload(Device.notes), selectinload(Device.room),
-        selectinload(Device.department), selectinload(Device.people).selectinload(DevicePerson.person)))
+        selectinload(Device.department), selectinload(Device.people).selectinload(DevicePerson.person),
+        selectinload(Device.remote)))
     for d in devices:
         macs = [i.mac for i in d.interfaces]
         owned.update(macs)
@@ -152,6 +153,7 @@ def build_rows(s: Session, aliases: dict, contacts: bool) -> list[dict[str, Any]
             extra += [d.room.number, d.room.name, d.room.building, d.room.floor]
         if d.department:
             extra.append(d.department.name)
+        extra += [r.value for r in d.remote] + [r.label for r in d.remote]
         for dp in links:
             extra += [dp.person.display_name, dp.person.username]
             if contacts:
@@ -201,6 +203,7 @@ def _events_for(s: Session, macs: list[str], device_id: int | None, limit: int =
 
 @router.get("/devices/{device_id}")
 def get_device(device_id: int, request: Request, user: User = Depends(current_user)) -> dict[str, Any]:
+    from .api_remote import device_remote  # local import: api_remote builds on this module
     aliases = _engine(request).port_aliases
     contacts = _contacts_ok(request, user)
     with _db(request).session() as s:
@@ -224,6 +227,7 @@ def get_device(device_id: int, request: Request, user: User = Depends(current_us
             "notes": [{"id": n.id, "text": n.text, "pinned": n.pinned, "author": n.author,
                        "created_at": n.created_at, "updated_at": n.updated_at} for n in d.notes],
             "events": _events_for(s, [i.mac for i in d.interfaces], d.id),
+            "remote": device_remote(request, s, d),
         }
 
 

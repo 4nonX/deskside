@@ -73,6 +73,10 @@ What deskside does with a convention:
 - Offers the convention's form of the host name when you create a device from an unknown address (`ws12.example.org` becomes `WS12`).
 - Shows a warning on the card when a device of the convention's type has a name that does not fit, or when its address differs from the expected one.
 
+### remote_tools
+
+Remote access buttons: changes to the built-in tools and additional ones. See [remote-access.md](remote-access.md).
+
 ### privacy
 
 | Key | Default | Meaning |

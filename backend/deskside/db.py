@@ -43,6 +43,7 @@ class Device(Base):
     room: Mapped[Room | None] = relationship()
     department: Mapped[Department | None] = relationship()
     people: Mapped[list[DevicePerson]] = relationship(back_populates="device", cascade="all, delete-orphan")
+    remote: Mapped[list[RemoteAccess]] = relationship(cascade="all, delete-orphan", order_by="RemoteAccess.position")
     interfaces: Mapped[list[Interface]] = relationship(back_populates="device", cascade="all, delete-orphan")
     notes: Mapped[list[Note]] = relationship(back_populates="device", cascade="all, delete-orphan",
                                              order_by="Note.created_at.desc()")
@@ -99,6 +100,19 @@ class DevicePerson(Base):
 
     device: Mapped[Device] = relationship(back_populates="people")
     person: Mapped[Person] = relationship()
+
+
+class RemoteAccess(Base):
+    """A remote access entry on a device: a tool key plus the value it needs (an ID or an address)."""
+
+    __tablename__ = "remote_access"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    device_id: Mapped[int] = mapped_column(ForeignKey("devices.id", ondelete="CASCADE"), index=True)
+    tool: Mapped[str] = mapped_column(String(50))
+    value: Mapped[str] = mapped_column(String(255), default="")
+    username: Mapped[str] = mapped_column(String(200), default="")
+    label: Mapped[str] = mapped_column(String(100), default="")
+    position: Mapped[int] = mapped_column(Integer, default=0)
 
 
 class Interface(Base):

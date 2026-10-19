@@ -13,3 +13,4 @@ export const IconEdit = (): JSX.Element => <svg {...base}><path d="M10.5 2.5l3 3
 export const IconPlus = (): JSX.Element => <svg {...base}><path d="M8 3v10M3 8h10" /></svg>;
 export const IconPort = (): JSX.Element => <svg {...base}><rect x="2.5" y="4" width="11" height="8" rx="1" /><path d="M5.5 12V9.5h5V12M6.5 9.5V8M9.5 9.5V8" /></svg>;
 export const IconLink = (): JSX.Element => <svg {...base}><path d="M6.5 9.5l3-3M7 4.5l1-1a2.5 2.5 0 0 1 3.5 3.5l-1 1M9 11.5l-1 1A2.5 2.5 0 0 1 4.5 9l1-1" /></svg>;
+export const IconCopy = (): JSX.Element => <svg {...base}><rect x="5.5" y="5.5" width="8" height="8" rx="1.2" /><path d="M10.5 5.5V3.7A1.2 1.2 0 0 0 9.3 2.5H3.7A1.2 1.2 0 0 0 2.5 3.7v5.6a1.2 1.2 0 0 0 1.2 1.2h1.8" /></svg>;

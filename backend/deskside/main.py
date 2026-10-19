@@ -15,7 +15,8 @@ from fastapi.staticfiles import StaticFiles
 from . import __version__, config
 from .api import router
 from .api_people import router as people_router
-from . import naming
+from .api_remote import router as remote_router
+from . import naming, remote
 from .auth import Sessions, ensure_admin
 from .db import Database
 from .engine import Engine
@@ -37,6 +38,7 @@ def create_app(settings: config.Settings | None = None) -> FastAPI:
         app.state.db = db
         app.state.settings = settings
         app.state.naming = naming.load(settings.naming)
+        app.state.remote_tools = remote.load(settings.raw.get("remote_tools"))
         app.state.sessions = Sessions(settings.secret_key)
         app.state.engine = Engine(settings, db)
         app.state.engine.start()
@@ -48,6 +50,7 @@ def create_app(settings: config.Settings | None = None) -> FastAPI:
                   openapi_url="/api/openapi.json", redoc_url=None)
     app.include_router(router)
     app.include_router(people_router)
+    app.include_router(remote_router)
 
     if (STATIC / "index.html").exists():
         app.mount("/assets", StaticFiles(directory=STATIC / "assets"), name="assets")

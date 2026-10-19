@@ -19,6 +19,7 @@ The filters above the list show all devices, only the ones you have named (**Kno
 Selecting a row opens the card. It is meant to answer a support call without further clicks:
 
 - **Pinned warnings** at the top, for things the next person must know ("power connector is loose").
+- **Remote access** buttons: Remote Desktop, RustDesk, TeamViewer, VNC, SSH, a web interface, or whatever your admin configured. Each button has a copy icon for the ID or address. See [remote-access.md](remote-access.md) for which tool opens how.
 - **Users**, with the main user first, their job title and department, and phone, mobile and e-mail as links you can click.
 - **Place**: room and department.
 - **Network**: for every MAC address of the device, its IP address, host name, vendor, switch and port, whether the address is fixed or from DHCP, whether it is online, and since when it has been on its current port. If a port carries many addresses, the card says so: the device then sits behind another switch or a hypervisor, and the exact port is not known.

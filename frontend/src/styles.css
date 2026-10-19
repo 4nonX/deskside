@@ -169,6 +169,18 @@ table.dir .note-actions { margin-left: 14px; }
 .people { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 8px; max-width: 1400px; }
 .hit span { display: inline-flex; align-items: center; gap: 6px; }
 
+/* milestone 3: remote access */
+.remote-row { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
+.remote { display: inline-flex; align-items: center; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); }
+.remote .btn { display: inline-flex; align-items: center; gap: 6px; padding: 6px 10px; color: var(--accent); text-decoration: none; font-weight: 500; }
+.remote .btn:hover { background: var(--accent-soft); }
+.remote .btn.static { color: var(--text); }
+.remote .icon { border-left: 1px solid var(--line); border-radius: 0 6px 6px 0; padding: 6px 8px; position: relative; }
+.copied { position: absolute; top: -26px; right: 0; font-size: 11.5px; background: var(--text); color: var(--panel); padding: 2px 6px; border-radius: 4px; white-space: nowrap; }
+.remote-list li { display: grid; grid-template-columns: 1fr auto auto; gap: 10px; padding: 4px 0; font-size: 13px; }
+.remote-form { display: grid; gap: 6px; margin-top: 6px; }
+section > button.link { display: inline-flex; align-items: center; gap: 5px; font-size: 13px; }
+
 @media (max-width: 1250px) {
   .layout.with-card table.devices td:nth-child(5), .layout.with-card table.devices th:nth-child(5),
   .layout.with-card table.devices td:nth-child(3), .layout.with-card table.devices th:nth-child(3) { display: none; }

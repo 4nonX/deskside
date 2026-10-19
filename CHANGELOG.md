@@ -18,3 +18,4 @@ All notable changes to deskside are listed here. The format follows [Keep a Chan
 - Privacy setting for who sees contact details; search by contact details follows the same rule.
 - Search also matches rooms, departments, users and their contact details.
 - Existing databases gain new tables and columns automatically on start.
+- Remote access buttons on the device card: generated `.rdp` files for Remote Desktop, links for RustDesk, TeamViewer, VNC, SSH and web interfaces, and copy-to-clipboard for every ID or address. Tools can be changed, removed or added with link templates; address-based tools can be enabled for whole device types. Remote IDs are searchable.

@@ -29,6 +29,13 @@ naming:
     kind: workstation
     # ip: "10.0.10.{100+n}"    # expected address per number, if you use a scheme
 
+# Remote access buttons (optional). See docs/remote-access.md.
+remote_tools:
+  rdp:
+    auto_kinds: [workstation]   # every workstation gets a Remote Desktop button
+  web:
+    auto_kinds: [printer]
+
 privacy:
   contacts_visible_to: editor # viewer, editor or admin: who sees phone numbers and e-mail addresses
 
