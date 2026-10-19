@@ -115,6 +115,7 @@ export interface DeviceCard {
   contacts_visible: boolean; naming_warnings: string[]; remote: RemoteEntry[];
   netbox: NetboxInfo | null; netbox_writable: boolean; proposals: ProposalItem[];
   interfaces: DeviceInterface[]; notes: Note[]; events: EventItem[];
+  documented_ip: string | null;
 }
 export interface UnknownCard extends NetInfo { type: "unknown"; mac: string; events: EventItem[]; suggested_name: string | null }
 export interface SourceState {

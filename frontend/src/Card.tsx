@@ -110,9 +110,10 @@ function DeviceView({ d, canEdit, isAdmin, wrap, onDeleted, onSelect }:
       ))}
       <NamingWarnings warnings={d.naming_warnings} />
 
-      {(main || primary) && (
+      {(main || primary || d.documented_ip) && (
         <div className="facts">
           {main?.ip && <Fact label={t("card.ip")} value={main.ip} mono />}
+          {!main?.ip && d.documented_ip && <Fact label={`${t("card.ip")} · ${t("ip.documented")}`} value={d.documented_ip} mono />}
           {main && <Fact label={t("card.mac")} value={main.mac} mono />}
           {main?.hostname && <Fact label={t("card.hostname")} value={main.hostname} mono />}
           {primary && (

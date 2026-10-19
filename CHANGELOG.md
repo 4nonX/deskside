@@ -4,6 +4,13 @@ All notable changes to deskside are listed here. The format follows [Keep a Chan
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-10-19
+
+### Fixed
+
+- The device card now shows the address NetBox documents when no live source reports one (fixed addresses without a lease, such as a NAS), marked as documented. The device list already did this.
+- `deskside --help` and unknown arguments print usage instead of starting a second server.
+
 ## [0.1.0] - 2026-10-19
 
 First release.

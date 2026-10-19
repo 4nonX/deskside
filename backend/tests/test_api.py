@@ -174,3 +174,22 @@ def test_dhcp_push_upload(tmp_path):
         assert c.post("/api/login", json={"username": "admin", "password": "initial-password"}).status_code == 200
         rows = c.get("/api/devices", params={"show": "leases"}).json()["rows"]
         assert [(x["ip"], x["hostname"]) for x in rows] == [("10.0.10.150", "ws50.example.org")]
+
+
+def test_documented_ip_also_on_the_device_card(client, monkeypatch):
+    # A fixed address no live source reports (e.g. a NAS without a lease) shows on the card as NetBox documents it.
+    eng = client.app.state.engine
+    monkeypatch.setattr(eng, "documented_ip", lambda name, macs, external_id=None: "10.0.10.5" if name == "NAS01" else None, raising=False)
+    dev = client.post("/api/devices", json={"name": "NAS01", "kind": "server"}).json()["id"]
+    assert client.get(f"/api/devices/{dev}").json()["documented_ip"] == "10.0.10.5"
+    row = next(r for r in client.get("/api/devices").json()["rows"] if r.get("id") == dev)
+    assert row["ip"] == "10.0.10.5" and row["ip_documented"]
+
+
+def test_cli_help_does_not_start_a_server(monkeypatch, capsys):
+    import sys
+    from deskside import main
+    monkeypatch.setattr(sys, "argv", ["deskside", "--help"])
+    with pytest.raises(SystemExit) as exc:
+        main.run()
+    assert exc.value.code == 0 and "update-oui" in capsys.readouterr().out

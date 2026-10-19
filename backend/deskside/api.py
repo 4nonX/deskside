@@ -316,6 +316,10 @@ def get_device(device_id: int, request: Request, user: User = Depends(current_us
         sightings = {x.mac: x for x in s.scalars(select(Sighting).where(Sighting.mac.in_([i.mac for i in d.interfaces])))}
         ips = [x.ip for x in sightings.values() if x.ip]
         links = sorted(d.people, key=lambda dp: (not dp.is_primary, dp.person.display_name.lower()))
+        # Same fallback as the device list: a fixed address no live source reports, as NetBox documents it.
+        documented = None
+        if not ips and hasattr(ports, "documented_ip"):
+            documented = ports.documented_ip(d.name, [i.mac for i in d.interfaces], d.external_id)
         return {
             "type": "device", "id": d.id, "name": d.name, "kind": d.kind, "description": d.description,
             "created_at": d.created_at, "updated_at": d.updated_at,
@@ -330,6 +334,7 @@ def get_device(device_id: int, request: Request, user: User = Depends(current_us
             "department": {"id": d.department.id, "name": d.department.name} if d.department else None,
             "people": [{"link_id": dp.id, "primary": dp.is_primary, **_person_dict(dp.person, contacts)} for dp in links],
             "contacts_visible": contacts,
+            "documented_ip": documented,
             "naming_warnings": naming.check(_conventions(request), d.name, d.kind, ips),
             "interfaces": [{"id": i.id, "mac": i.mac, "label": i.label, "expected_ip": i.expected_ip,
                             **{k: v for k, v in _sighting_dict(sightings.get(i.mac), ports).items() if k != "mac"}}

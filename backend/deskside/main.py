@@ -92,12 +92,20 @@ def update_oui(target: str) -> None:
     print(f"saved to {path}; set oui_file: {path} in the configuration and restart")
 
 
+USAGE = """usage: deskside                       start the server (configuration from DESKSIDE_CONFIG / config.yaml)
+       deskside update-oui [PATH]     download the IEEE vendor list (default data/oui.csv)"""
+
+
 def run() -> None:
     import uvicorn
 
-    if len(sys.argv) > 1 and sys.argv[1] == "update-oui":
-        update_oui(sys.argv[2] if len(sys.argv) > 2 else "data/oui.csv")
+    args = sys.argv[1:]
+    if args and args[0] == "update-oui":
+        update_oui(args[1] if len(args) > 1 else "data/oui.csv")
         return
+    if args:  # anything else (--help, typos) prints usage instead of starting a second server
+        print(USAGE, file=sys.stdout if args[0] in ("-h", "--help", "help") else sys.stderr)
+        sys.exit(0 if args[0] in ("-h", "--help", "help") else 2)
     logging.basicConfig(level=os.environ.get("DESKSIDE_LOG_LEVEL", "INFO"),
                         format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     try:

@@ -19,7 +19,7 @@ deskside runs as one container. It needs a configuration file, a few secret file
    mkdir secrets
    ```
 
-   The compose file uses the published image `ghcr.io/4nonx/deskside`. Pin a version (`ghcr.io/4nonx/deskside:0.1.0`) rather than `latest` in production. To build from source instead, clone the repository and replace `image:` with `build: .`.
+   The compose file uses the published image `ghcr.io/4nonx/deskside`. Pin a version (`ghcr.io/4nonx/deskside:0.1.1`) rather than `latest` in production. To build from source instead, clone the repository and replace `image:` with `build: .`.
 
 2. Create the two secrets deskside needs for itself. The session key signs sign-in cookies; the admin password is used once, to create the first account.
 
