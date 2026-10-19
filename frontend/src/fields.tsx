@@ -4,7 +4,7 @@ import { t } from "./i18n";
 
 export type Selection = { kind: "device"; id: number } | { kind: "mac"; mac: string };
 
-export const CONNECTIONS = ["", "usb", "usb-c", "dp", "hdmi", "vga", "dvi", "dock", "network", "wifi", "bluetooth", "serial", "audio", "power", "other"];
+export const CONNECTIONS = ["", "usb", "usb-c", "dp", "hdmi", "vga", "dvi", "dock", "network", "wifi", "bluetooth", "serial", "audio", "power", "virtual", "other"];
 
 /** "Dymo" + "Dymo LabelWriter 550" reads as "Dymo LabelWriter 550", not twice the vendor. */
 export function makeModel(manufacturer?: string | null, model?: string | null): string {

@@ -79,6 +79,18 @@ What deskside does with a convention:
 
 Connection to NetBox: reading, automatic low-risk updates and proposals. See [netbox.md](netbox.md).
 
+### map
+
+Optional. The network map finds the gateway by device type (firewall, gateway, UTM, then router) and the WAN device by type (modem, ONT, DSL, WAN). Name them if that does not fit:
+
+```yaml
+map:
+  gateway: fw01              # the device that routes the LAN to the Internet
+  wan_device: modem01        # the device between the gateway and the provider
+  internet: true             # draw the Internet at the top
+  switch_roles: [Switch]     # NetBox roles drawn as switches (default: Switch)
+```
+
 ### remote_tools
 
 Remote access buttons: changes to the built-in tools and additional ones. See [remote-access.md](remote-access.md).

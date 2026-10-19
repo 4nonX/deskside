@@ -19,20 +19,40 @@ Each linked device card shows the NetBox device with a link, its location, and f
 
 Every NetBox location becomes a room in deskside, with the site as building. These rooms are read-only in deskside; rename them in NetBox. A linked device without a room gets the room of its NetBox location. A room you set by hand is never overwritten. Set `import_locations: false` to keep rooms and locations separate.
 
-## Peripherals from NetBox
+## Devices, infrastructure and virtual machines from NetBox
 
-If NetBox already lists monitors, printers, phones and other equipment, deskside can take them over and attach them to the right workstation:
+If NetBox already lists monitors, printers, phones, switches, servers and virtual machines, deskside can take them over:
 
 ```yaml
 netbox:
   import_devices:
-    roles: [Monitor, Printer, Phone, Scanner, Docking station]   # NetBox device roles to take over
-    parent_pattern: '^(?P<parent>WS\d+)-'                         # "WS05-Monitor" belongs to WS05
+    roles: [all, Monitor, Phone]               # NetBox device roles to take over, see below
+    exclude_roles: [Patch panel]               # never these
+    virtual_machines: true                     # NetBox virtual machines, attached to their host
+    parent_pattern: '^(?P<parent>WS\d+)-'      # "WS05-Monitor" belongs to WS05
 ```
+
+`all` takes every NetBox device that has at least one network interface: switches, hypervisors, firewalls, access points, NAS, UPS and so on. Patch panels and shelves have none and are left out. Roles listed by name are imported even without interfaces, which is what you want for monitors and phones without a network port. A NetBox device whose name matches `name_pattern` gets the short name, so `WS22-Client-PC` becomes `WS22`.
+
+With `virtual_machines: true`, every NetBox virtual machine becomes a device of type "VM" (or its NetBox role), with the connection "virtual" and attached to its host. The host is the device set on the virtual machine, or the only device in its cluster.
+
+Servers often have a fixed address in NetBox but no MAC address. deskside then looks up which MAC address uses that address on the network and adds it to the device, labelled with the interface name from NetBox.
 
 For each NetBox device with one of these roles, deskside creates a device with the role as type, and manufacturer, model and serial number from NetBox. If its name matches `parent_pattern`, it is attached to the deskside device named by the `parent` group. Name, manufacturer, model and serial number stay in sync with NetBox and are read-only in deskside; type, icon, connection and notes can be changed. A parent you set by hand is never overwritten. MAC addresses recorded in NetBox for these devices are added too, so a network printer picks up its live data.
 
 NetBox devices that already correspond to a deskside device (matched by MAC address or `name_pattern`) are not imported twice.
+
+## What the network map takes from NetBox
+
+Without NetBox, the map shows what the switches report. With NetBox it also knows:
+
+- **Cables between switches**, including unmanaged ones. A device seen on the port leading to an unmanaged switch is drawn behind that switch, on the port NetBox documents for it.
+- **Switches without a documented uplink** are placed where their devices are seen and marked "uplink not documented".
+- **Management interfaces** (interfaces marked *management only*, such as iLO or iDRAC) are drawn as a separate thin line. They never decide where a server is.
+- **Virtual machines and their hosts**, see above.
+- **VPN tunnels** (NetBox 3.7 or later) that end on the gateway, shown next to it.
+
+Nothing on the map is written back to NetBox.
 
 ## What deskside writes on its own
 

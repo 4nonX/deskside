@@ -116,7 +116,7 @@ def test_remote_entries_rdp_download_and_search(client):
     assert [r["name"] for r in client.get("/api/devices", params={"q": "987654321"}).json()["rows"]] == ["WS05"]
 
 
-def test_peripherals_relations_and_topology(client):
+def test_peripherals_relations_and_graph(client):
     from deskside.db import Sighting
     pc = client.post("/api/devices", json={"name": "WS07", "kind": "workstation", "mac": "00:00:5e:00:53:07"}).json()["id"]
     mon = client.post("/api/devices", json={"name": "WS07 monitor", "kind": "monitor", "parent_id": pc, "connection": "dp",
@@ -135,10 +135,10 @@ def test_peripherals_relations_and_topology(client):
     assert card["segment"]["port"] == "GigabitEthernet9" and card["segment"]["peers"][0]["name"] == "printer"
     assert client.get(f"/api/devices/{mon}").json()["parent"]["name"] == "WS07 dock"
     assert [r["name"] for r in client.get("/api/devices", params={"q": "SN-1"}).json()["rows"]] == ["WS07 monitor"]
-    topo = client.get("/api/topology").json()
-    port = topo["switches"][0]["ports"][0]
-    assert port["shared"] is True and port["items"][0]["name"] == "WS07"
-    assert port["items"][0]["children"][0]["children"][0]["name"] == "WS07 monitor"
+    graph = client.get("/api/graph").json()
+    edges = {(e["source"], e["target"]): e for e in graph["edges"]}
+    assert edges[("sw:core", f"d:{pc}")]["label"] == "GigabitEthernet9"
+    assert (f"d:{pc}", f"d:{dock}") in edges and (f"d:{dock}", f"d:{mon}") in edges
     assert client.put("/api/kinds/monitor", json={"icon": "device-desktop"}).status_code == 200
     assert {k["kind"]: k["icon"] for k in client.get("/api/kinds").json()}["monitor"] == "device-desktop"
     assert client.put("/api/kinds/monitor", json={"icon": "<svg>"}).status_code == 400

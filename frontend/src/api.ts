@@ -51,12 +51,16 @@ export interface Segment {
   online: boolean; peers: SegmentPeer[];
 }
 export interface KindItem { kind: string; icon: string; devices: number }
-export interface MapNode {
-  type: "device" | "unknown"; id?: number; mac?: string; name: string | null; kind?: string; icon?: string;
-  connection?: string; ip?: string | null; vendor?: string | null; online?: boolean; children: MapNode[];
+export interface GraphNode {
+  id: string; type: "device" | "switch" | "unknown" | "group" | "internet" | "vpn"; device_id: number | null; name: string | null;
+  kind?: string; icon?: string; online: boolean | null; ip?: string | null; mac?: string; vendor?: string | null;
+  managed?: boolean; uplink_undocumented?: boolean; gateway?: boolean; members?: GraphNode[];
 }
-export interface MapPort { port: string; alias: string | null; uplink: boolean; macs: number; shared: boolean; items: MapNode[] }
-export interface Topology { switches: { name: string; ports: MapPort[] }[]; unplaced: MapNode[] }
+export interface GraphEdge {
+  id: string; source: string; target: string; kind: "link" | "uplink" | "port" | "behind" | "inferred" | "virtual" | "attached" | "wan" | "mgmt" | "vpn";
+  label: string | null; target_label?: string; alias?: string; via?: string;
+}
+export interface NetGraph { nodes: GraphNode[]; edges: GraphEdge[]; unplaced: GraphNode[] }
 
 export interface Room { id: number; number: string; name: string; building: string; floor: string; description: string; devices?: number; source?: string }
 export type RoomInput = Omit<Room, "id" | "devices" | "source">;
@@ -145,7 +149,7 @@ export const api = {
     icon: string; clear: ("room" | "department" | "parent")[] }>) => request("PATCH", `/devices/${id}`, b),
   kinds: () => request<KindItem[]>("GET", "/kinds"),
   setKindIcon: (kind: string, icon: string) => request("PUT", `/kinds/${encodeURIComponent(kind)}`, { icon }),
-  topology: () => request<Topology>("GET", "/topology"),
+  graph: () => request<NetGraph>("GET", "/graph"),
   rooms: () => request<Room[]>("GET", "/rooms"),
   createRoom: (b: RoomInput) => request<{ id: number }>("POST", "/rooms", b),
   updateRoom: (id: number, b: RoomInput) => request("PATCH", `/rooms/${id}`, b),

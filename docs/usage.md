@@ -21,7 +21,7 @@ IP addresses, MAC addresses, host names and serial numbers copy themselves when 
 The switch above the list changes the view:
 
 - **List**: everything in one table, filtered by the search.
-- **Network map**: a diagram per switch. Each port shows what is plugged in, and under each device what is attached to it. Ports with several devices (an unmanaged desk switch, a phone with a PC behind it, a hypervisor) are drawn as a dashed group. Unknown addresses have a question mark. Search terms highlight matching devices and scroll to the first one; click any device to open its card.
+- **Network map**: the network as a diagram, in the order traffic flows. See [The network map](#the-network-map) below.
 - **Rooms**: one tile per room with its devices, and under each device its peripherals.
 
 ## Icons
@@ -43,6 +43,27 @@ At a glance:
 In the tabs: **Details** (users, room and department, device data, network details per interface, remote access entries), **Notes**, **History** and **NetBox**.
 
 **History** shows where the device was plugged in and which addresses it had, as a timeline with durations ("GigabitEthernet7, 12.10. – now, 7 days"), followed by its events. That answers "was this PC on the network last Tuesday, and where?" without digging through switch logs.
+
+## The network map
+
+The map starts at the top with the Internet, the WAN device (modem, router) and the gateway. If the gateway is a virtual machine, the hypervisor carrying it stands in that place, drawn as a box with all its virtual machines: a server that runs the firewall is upstream of the LAN, not one device among many. Below it comes the switch the gateway is plugged into, then further switches, and on each switch the devices on its ports.
+
+How each line comes about:
+
+| Line | Meaning |
+|---|---|
+| Thick blue | Internet connection: Internet, WAN device, gateway |
+| Thick grey | Switch to switch, or gateway to switch, from NetBox cables or LLDP |
+| Thin | A device on a switch port, as the switch reports it right now |
+| Dashed | Behind a further switch: seen on the port that leads to an unmanaged switch |
+| Dashed yellow | Derived, not documented: a switch without a documented uplink, placed where its devices are seen |
+| Dotted, around the side | A management port (iLO, iDRAC, IPMI). It never decides where a device is drawn |
+
+Devices that hang off one switch are packed into columns along a shared line, sorted by port; switches, hypervisors and workstations with opened peripherals follow to the right as their own branches. The port and address are shown in each box. Peripherals are folded into their device (the `+3` button opens them, or **Show peripherals** opens all). More than three unknown addresses on one port become a single box you can open.
+
+Search highlights matches and zooms to them; a virtual machine or a folded peripheral marks the box it is in. Live updates keep the view where you left it. Click any box to open the device card. **Not in the map** lists devices that no switch sees right now and that NetBox does not place either.
+
+The map needs no configuration. If the gateway or the WAN device is not recognised from its device type, name them under `map` in the configuration, see [configuration.md](configuration.md#map).
 
 ## Events
 

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ApiError, api, subscribe, type Me, type Row } from "./api";
 import { ago, t } from "./i18n";
 import { IconPin, IconSearch } from "./icons";
@@ -8,10 +8,11 @@ import { SourcesView, UsersView } from "./Views";
 import { EventsPage } from "./HistoryView";
 import { DirectoryView } from "./Directory";
 import { NetboxView } from "./Netbox";
-import { MapView } from "./MapView";
 import { RoomsView } from "./RoomsView";
 import { Copyable } from "./Copy";
 import { Icon, KindIcons, useIconFor } from "./iconset";
+
+const MapView = lazy(() => import("./MapView").then((m) => ({ default: m.MapView })));
 
 type Tab = "devices" | "directory" | "netbox" | "events" | "admin";
 type View = "list" | "map" | "rooms";
@@ -162,7 +163,7 @@ function Main({ me, onSignOut }: { me: Me; onSignOut: () => void }) {
               )}
             </div>
             {view === "list" && <DeviceTable rows={listRows} selected={sel} onSelect={setSel} />}
-            {view === "map" && <MapView q={q} tick={tick} onOpen={setSel} />}
+            {view === "map" && <Suspense fallback={null}><MapView q={q} tick={tick} onOpen={setSel} /></Suspense>}
             {view === "rooms" && <RoomsView rows={rows} onOpen={open} />}
           </main>
         )}

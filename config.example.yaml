@@ -50,6 +50,14 @@ naming:
 #   url: https://netbox.example.org
 #   token_file: /run/secrets/netbox_token
 #   read_only: true
+#   import_devices:
+#     roles: [all, Monitor, Phone]     # infrastructure with network interfaces, plus these roles
+#     virtual_machines: true           # VMs, attached to their host
+
+# Network map (optional). Only needed if gateway or modem are not recognised by their device type.
+# map:
+#   gateway: fw01
+#   wan_device: modem01
 
 # Remote access buttons (optional). See docs/remote-access.md.
 remote_tools:

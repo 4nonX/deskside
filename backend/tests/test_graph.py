@@ -1,0 +1,93 @@
+"""The network map graph: switch cascades from NetBox, inferred uplinks, virtual machines and the Internet."""
+
+from dataclasses import dataclass, field
+
+from deskside.graph import Dev, Graph, Seen
+from deskside.sources import Neighbor
+
+
+def M(n: int) -> str:
+    return f"00:00:5E:00:53:{n:02X}"
+
+
+@dataclass
+class If:
+    id: int
+    device_id: int
+    name: str
+    endpoints: list = field(default_factory=list)
+    mgmt: bool = False
+    macs: list = field(default_factory=list)
+
+
+class FakeNb:
+    """core (read via SNMP) GE2 -> desk-sw sfp1; desk-sw p3 -> WS03; floor-sw p8 -> WS08, uplink not documented."""
+
+    def __init__(self):
+        role = lambda r: {"name": r}
+        self.devices = {1: {"name": "core", "role": role("Switch")}, 2: {"name": "desk-sw", "role": role("Switch")},
+                        3: {"name": "floor-sw", "role": role("Switch")}, 10: {"name": "WS03"}, 11: {"name": "WS08"},
+                        12: {"name": "hv1"}}
+        ep = lambda dev_id, name, port: [{"name": port, "device": {"id": dev_id, "name": name}}]
+        self.ifaces = {1: If(1, 1, "GE2", ep(2, "desk-sw", "sfp1")), 2: If(2, 2, "sfp1", ep(1, "core", "GE2")),
+                       3: If(3, 2, "p3", ep(10, "WS03", "LAN")), 4: If(4, 3, "p8", ep(11, "WS08", "LAN")),
+                       5: If(5, 1, "GE32", ep(12, "hv1", "eno1")), 6: If(6, 1, "GE22", ep(12, "hv1", "iLO")),
+                       7: If(7, 12, "iLO", mgmt=True)}
+        self.ifaces[6].endpoints[0]["id"] = 7
+        self.tunnels = [{"name": "staff-vpn", "owner": "fw", "role": "hub"}]
+
+    def device_for(self, name, macs, external_id=None):
+        return {"ws03": 10, "ws08": 11, "hv1": 12}.get(name.lower())
+
+
+def build(devices, seen, **kw):
+    g = Graph(devices, seen, **kw).build()
+    nodes = {n["id"]: n for n in g["nodes"]}
+    edges = {(e["source"], e["target"]): e for e in g["edges"]}
+    return g, nodes, edges
+
+
+def test_cascade_inferred_uplink_vms_and_internet():
+    devs = [Dev(1, "WS03", "workstation", macs=[M(3)]), Dev(2, "WS08", "workstation", macs=[M(8)]),
+            Dev(3, "hv1", "Hypervisor", macs=[M(0x30), M(0x32)], labels={M(0x32): "iLO"}), Dev(4, "fw", "Firewall", connection="virtual", parent_id=3,
+                                                              macs=[M(0x31)]),
+            Dev(5, "WS03 monitor", "monitor", connection="dp", parent_id=1), Dev(6, "spare", "workstation"),
+            Dev(7, "modem", "Modem")]
+    seen = [Seen(M(3), "10.0.10.103", "core", "GigabitEthernet2", port_mac_count=6),
+            Seen(M(8), "10.0.10.108", "core", "GigabitEthernet5", port_mac_count=3),
+            Seen(M(0x30), "10.0.10.3", "core", "GigabitEthernet32", port_mac_count=2),
+            Seen(M(0x32), "10.0.10.171", "core", "GigabitEthernet22", port_mac_count=1),     # out-of-band port
+            Seen(M(0x31), "10.0.10.250", "core", "GigabitEthernet32", port_mac_count=2),
+            *[Seen(M(0x40 + i), None, "core", "GigabitEthernet2", port_mac_count=6) for i in range(5)]]
+    g, nodes, edges = build(devs, seen, netbox=FakeNb())
+    core, desk, floor = "sw:core", "sw:desk-sw", "sw:floor-sw"
+    assert nodes[core]["managed"] and not nodes[desk]["managed"]
+    assert edges[(core, desk)]["kind"] == "link" and edges[(core, desk)]["label"] == "GE2"
+    # seen on the core's uplink to desk-sw, documented on desk-sw p3: drawn on desk-sw
+    assert edges[(desk, "d:1")]["label"] == "p3"
+    # floor-sw has no documented uplink; WS08 is documented on it and seen on GE5, so it hangs there
+    assert nodes[floor]["uplink_undocumented"] and edges[(core, floor)]["kind"] == "inferred"
+    assert edges[(core, floor)]["label"] == "GigabitEthernet5" and edges[(floor, "d:2")]["label"] == "p8"
+    # Internet -> modem -> the host carrying the firewall VM -> the core switch on the host's data port
+    assert edges[("internet", "d:7")]["kind"] == "wan" and edges[("d:7", "d:3")]["kind"] == "wan"
+    assert edges[("d:3", core)]["kind"] == "uplink" and edges[("d:3", core)]["target_label"] == "GE32"
+    assert edges[("d:3", "d:4")]["kind"] == "virtual" and nodes["d:4"]["online"] and nodes["d:4"]["gateway"]
+    # the out-of-band port is a management line, not the host's position
+    mgmt = [e for e in g["edges"] if e["kind"] == "mgmt"]
+    assert [(e["source"], e["target"], e["label"]) for e in mgmt] == [(core, "d:3", "GigabitEthernet22")]
+    assert edges[("d:3", "vpn:staff-vpn")]["via"] == "fw"
+    assert edges[("d:1", "d:5")]["kind"] == "attached"
+    # five unknown addresses behind desk-sw become one group
+    group = next(n for n in g["nodes"] if n["type"] == "group")
+    assert len(group["members"]) == 5 and (desk, group["id"]) in edges
+    assert [n["name"] for n in g["unplaced"]] == ["spare"]
+
+
+def test_without_netbox_and_with_lldp():
+    devs = [Dev(1, "WS03", "workstation", macs=[M(3)])]
+    seen = [Seen(M(3), "10.0.10.103", "core", "Gi3", port_mac_count=1), Seen(M(9), "10.0.10.9", "edge", "Gi1")]
+    g, nodes, edges = build(devs, seen, neighbors=[Neighbor("core", "Gi24", "edge", "Gi48")],
+                            options={"internet": False})
+    assert edges[("sw:core", "sw:edge")]["label"] == "Gi24"
+    assert edges[("sw:core", "d:1")]["label"] == "Gi3" and ("sw:edge", "u:" + M(9)) in edges
+    assert "internet" not in nodes

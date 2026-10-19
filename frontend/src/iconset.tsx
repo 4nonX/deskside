@@ -28,6 +28,8 @@ const GUESS: [RegExp, string][] = [
   [/router|modem/i, "router"],
   [/firewall|utm/i, "shield-lock"],
   [/hypervisor|server/i, "server"],
+  [/domain.?controller|directory/i, "server-2"],
+  [/vm|virtual|test.?umgebung|test.?environment/i, "cube"],
   [/nas|storage|backup/i, "database"],
   [/dock/i, "plug-connected"],
   [/usv|ups/i, "battery-charging"],

@@ -94,7 +94,13 @@ class Netbox:
             raise NetboxError("netbox.name_pattern needs a named group (?P<name>...)")
         self.import_rooms = bool(conf.get("import_locations", True))
         imp = conf.get("import_devices") or {}
-        self.import_roles = {str(r).lower() for r in imp.get("roles") or []}
+        roles = imp.get("roles") or []
+        roles = [roles] if isinstance(roles, str) else roles
+        self.import_roles = {str(r).lower() for r in roles}
+        # "all": every device with network interfaces (patch panels and shelves have none)
+        self.import_all = bool(self.import_roles & {"all", "*"})
+        self.exclude_roles = {str(r).lower() for r in imp.get("exclude_roles") or []}
+        self.import_vms = bool(imp.get("virtual_machines", False))
         self.parent_rx = re.compile(imp["parent_pattern"], re.I) if imp.get("parent_pattern") else None
         if self.parent_rx is not None and "parent" not in self.parent_rx.groupindex:
             raise NetboxError("netbox.import_devices.parent_pattern needs a named group (?P<parent>...)")
@@ -107,6 +113,11 @@ class Netbox:
         self.switch_ports: dict[tuple[str, str], NbIface] = {}
         self.has_seen_field = False
         self.locations: list[dict[str, Any]] = []
+        self.vms: dict[int, dict[str, Any]] = {}
+        self.vm_macs: dict[int, list[str]] = {}
+        self.ips_by_device: dict[int, list[tuple[str, str]]] = {}   # device -> [(address, interface name)]
+        self.ips_by_vm: dict[int, list[tuple[str, str]]] = {}
+        self.tunnels: list[dict[str, Any]] = []
         self._front_for_rear: dict[int, dict[str, Any]] = {}
         self._seen: dict[int, str] = {}
         self.transport: httpx.AsyncBaseTransport | None = None   # tests plug in a fake NetBox here
@@ -149,6 +160,36 @@ class Netbox:
                 self._all(cl, "dcim/devices/"), self._all(cl, "dcim/interfaces/"),
                 self._all(cl, "dcim/mac-addresses/"), self._all(cl, "extras/custom-fields/"))
             self.locations = await self._all(cl, "dcim/locations/") if self.import_rooms else []
+            ips = await self._all(cl, "ipam/ip-addresses/")
+            vms = await self._all(cl, "virtualization/virtual-machines/") if self.import_vms else []
+            vm_ifaces = await self._all(cl, "virtualization/interfaces/") if self.import_vms else []
+            try:
+                terms = await self._all(cl, "vpn/tunnel-terminations/")
+            except NetboxError:
+                terms = []                                  # NetBox before 3.7 has no VPN models
+        self.tunnels = []
+        for t in terms:
+            obj = t.get("termination") or {}
+            owner = (obj.get("device") or obj.get("virtual_machine") or {}).get("name")
+            if owner and (t.get("tunnel") or {}).get("name"):
+                self.tunnels.append({"name": t["tunnel"]["name"], "owner": owner,
+                                     "role": (t.get("role") or {}).get("value")})
+        self.vms = {v["id"]: v for v in vms}
+        self.vm_macs = {}
+        for i in vm_ifaces:
+            mac = (i.get("primary_mac_address") or {}).get("mac_address")
+            if mac and i.get("virtual_machine"):
+                self.vm_macs.setdefault(i["virtual_machine"]["id"], []).append(mac.upper())
+        self.ips_by_device, self.ips_by_vm = {}, {}
+        for ip in ips:
+            if (ip.get("status") or {}).get("value") == "dhcp":
+                continue                                    # changing addresses identify nothing
+            obj = ip.get("assigned_object") or {}
+            addr = ip["address"].split("/")[0]
+            if obj.get("device"):
+                self.ips_by_device.setdefault(obj["device"]["id"], []).append((addr, obj.get("name") or ""))
+            elif obj.get("virtual_machine"):
+                self.ips_by_vm.setdefault(obj["virtual_machine"]["id"], []).append((addr, obj.get("name") or ""))
         self.has_seen_field = any(c["name"] == self.seen_field and "dcim.interface" in c.get("object_types", [])
                                   for c in cfs)
         self.devices = {d["id"]: d for d in devices}
@@ -218,8 +259,8 @@ class Netbox:
         return None
 
     def _import_devices(self) -> dict[str, int]:
-        """Create or update deskside devices for NetBox devices of the configured roles (peripherals)."""
-        if not self.import_roles:
+        """Create or update deskside devices for NetBox devices of the configured roles, and for virtual machines."""
+        if not self.import_roles and not self.import_vms:
             return {}
         from .db import Interface
         created = 0
@@ -231,8 +272,11 @@ class Netbox:
             linked = {self.device_for(d.name, [i.mac for i in d.interfaces]) for d in all_devs if d.source != "netbox"}
             for nb in self.devices.values():
                 role = ((nb.get("role") or {}).get("name") or "")
-                if role.lower() not in self.import_roles or nb["id"] in linked:
+                if nb["id"] in linked or role.lower() in self.exclude_roles:
                     continue
+                if role.lower() not in self.import_roles:
+                    if not self.import_all or not any(i.device_id == nb["id"] for i in self.ifaces.values()):
+                        continue                    # with "all": skip passive ones (patch panels, shelves)
                 ext = f"netbox:device:{nb['id']}"
                 d = by_ext.get(ext)
                 if d is None:
@@ -240,7 +284,8 @@ class Netbox:
                     s.add(d)
                     created += 1
                 dtype = nb.get("device_type") or {}
-                d.name = nb.get("name") or d.name
+                m = self.name_rx.match(nb.get("name") or "")
+                d.name = (m.group("name") if m else nb.get("name")) or d.name      # "WS22-Client-PC" -> "WS22"
                 d.kind = role
                 d.manufacturer = ((dtype.get("manufacturer") or {}).get("name") or "")
                 d.model = dtype.get("model") or ""
@@ -256,7 +301,53 @@ class Netbox:
                             if mac not in owned:
                                 d.interfaces.append(Interface(mac=mac, label=iface.name))
                                 owned.add(mac)
+                self._attach_by_ip(s, d, self.ips_by_device.get(nb["id"], []), owned)
+            if self.import_vms:
+                hosts = {}
+                for d in all_devs + list(s.new):
+                    if isinstance(d, Device):
+                        nb_id = self.device_for(d.name, [i.mac for i in d.interfaces], d.external_id)
+                        if nb_id:
+                            hosts.setdefault(nb_id, d)
+                for vm in self.vms.values():
+                    ext = f"netbox:vm:{vm['id']}"
+                    d = by_ext.get(ext) or next((x for x in all_devs if x.source != "netbox" and x.name.lower() == vm["name"].lower()), None)
+                    if d is None:
+                        d = Device(source="netbox", external_id=ext, name=vm["name"])
+                        s.add(d)
+                        by_ext[ext] = d
+                        created += 1
+                    if d.source == "netbox":
+                        d.name = vm["name"]
+                        d.kind = (vm.get("role") or {}).get("name") or "VM"
+                        d.model = (vm.get("platform") or {}).get("name") or ""
+                    d.connection = d.connection or "virtual"
+                    host_id = (vm.get("device") or {}).get("id")
+                    if host_id is None and vm.get("cluster"):
+                        # A cluster with a single host says where the machine runs, even without a pinned device.
+                        members = [i for i, x in self.devices.items()
+                                   if (x.get("cluster") or {}).get("id") == vm["cluster"]["id"]]
+                        host_id = members[0] if len(members) == 1 else None
+                    host = hosts.get(host_id)
+                    if host is not None and d.parent_id is None and host is not d:
+                        d.parent = host
+                    for mac in self.vm_macs.get(vm["id"], []):
+                        if mac not in owned:
+                            d.interfaces.append(Interface(mac=mac, label="virtual"))
+                            owned.add(mac)
+                    self._attach_by_ip(s, d, self.ips_by_vm.get(vm["id"], []), owned)
         return {"imported": created}
+
+    def _attach_by_ip(self, s, d: Device, ips: list[tuple[str, str]], owned: set[str]) -> None:
+        """Fixed addresses documented in NetBox identify infrastructure whose MAC NetBox does not know."""
+        from .db import Interface
+        if not ips:
+            return
+        names = dict(ips)
+        for sg in s.scalars(select(Sighting).where(Sighting.ip.in_(list(names)))):
+            if sg.mac not in owned:
+                d.interfaces.append(Interface(mac=sg.mac, label=names.get(sg.ip) or f"seen with {sg.ip}"))
+                owned.add(sg.mac)
 
     # --- comparing -------------------------------------------------------------------------
     def _target_iface(self, nb_device: int, mac: str) -> NbIface | None:
@@ -279,6 +370,8 @@ class Netbox:
             # with a PC behind it, a docking station), no cable can be proposed for any of them.
             per_port: dict[tuple[str, str], set[int]] = {}
             for dev in devices:
+                if dev.connection == "virtual":
+                    continue                    # virtual machines share their host's port by nature
                 for i in dev.interfaces:
                     sg = sightings.get(i.mac)
                     if sg and sg.online and sg.port:

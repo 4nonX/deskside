@@ -49,6 +49,8 @@ class FakeNetbox:
             return httpx.Response(201, json={"id": 999})
         lists = {"dcim/devices/": self.devices, "dcim/interfaces/": self.ifaces, "dcim/mac-addresses/": self.macs,
                  "extras/custom-fields/": self.custom_fields, "dcim/locations/": self.locations,
+                 "virtualization/virtual-machines/": getattr(self, "vms", []),
+                 "virtualization/interfaces/": getattr(self, "vm_ifaces", []),
                  "dcim/front-ports/": self.fronts, "ipam/ip-addresses/": self.ips}
         if path in lists:
             rows = lists[path]
@@ -210,3 +212,35 @@ def test_import_peripherals_with_parent_rule(setup):
         mon = devs["WS09-Monitor"]
         assert (mon.source, mon.kind, mon.model, mon.serial, mon.parent.name) == ("netbox", "Monitor", "M24", "SN-9", "WS09")
         assert devs["Lobby-TV"].parent_id is None
+
+
+def test_import_hosts_and_virtual_machines(setup):
+    db, _, fake = setup
+    fake.devices.append({"id": 4, "name": "hv1", "location": None, "role": {"name": "Hypervisor"}, "device_type": {},
+                         "cluster": {"id": 3}})
+    fake.ifaces.append(fake._iface(50, 4, "hv1", "eno1"))
+    fake.ips.append({"id": 6, "address": "10.0.10.3/24", "status": {"value": "active"},
+                     "assigned_object": {"id": 50, "device": {"id": 4, "name": "hv1"}}})
+    fake.ips.append({"id": 7, "address": "10.0.10.250/24", "status": {"value": "active"},
+                     "assigned_object": {"id": 60, "virtual_machine": {"id": 1, "name": "fw"}}})
+    fake.vms = [{"id": 1, "name": "fw", "role": {"name": "Firewall"}, "device": {"id": 4, "name": "hv1"}},
+                {"id": 2, "name": "files", "role": None, "device": None, "cluster": {"id": 3}}]
+    fake.vm_ifaces = [{"id": 61, "name": "eth0", "virtual_machine": {"id": 2, "name": "files"},
+                       "primary_mac_address": {"mac_address": "00:00:5e:00:53:62"}}]
+    with db.session() as s:
+        s.add(Sighting(mac="00:00:5E:00:53:30", ip="10.0.10.3", online=True))      # NetBox knows no MAC for these two
+        s.add(Sighting(mac="00:00:5E:00:53:31", ip="10.0.10.250", online=True))
+    nb = Netbox({"url": "https://netbox.example.org", "token": "t", "name_pattern": r"^(?P<name>WS\d+)-Client-PC$",
+                 "import_devices": {"roles": "all", "virtual_machines": True}}, db)
+    nb.transport = httpx.MockTransport(fake.handler)
+    assert asyncio.run(nb.sync()), nb.state.error
+    assert asyncio.run(nb.sync())
+    with db.session() as s:
+        devs = {d.name: d for d in s.scalars(select(Device))}
+        assert set(devs) == {"WS09", "hv1", "fw", "files", "core-sw"}     # patch-1 has no interfaces: passive
+        fw = devs["fw"]
+        assert (fw.kind, fw.connection, fw.parent.name) == ("Firewall", "virtual", "hv1")
+        assert [i.mac for i in fw.interfaces] == ["00:00:5E:00:53:31"]
+        assert [i.mac for i in devs["hv1"].interfaces] == ["00:00:5E:00:53:30"]
+        assert [i.mac for i in devs["files"].interfaces] == ["00:00:5E:00:53:62"] and devs["files"].kind == "VM"
+        assert devs["files"].parent.name == "hv1"                  # found through the cluster
